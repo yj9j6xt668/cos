@@ -1161,6 +1161,25 @@ function base64ToArrayBuffer(base64) {
   return bytes.buffer;
 }
 
+// ========== 工具箱辅助函数 ==========
+
+/**
+ * 获取当前要处理的源图层
+ * 优先用 activeLayer，如果没有（比如只有背景层），用第一个图层
+ */
+function getSourceLayer(doc) {
+  if (!doc) return null;
+  let layer = doc.activeLayer;
+  if (layer) return layer;
+  // 没有活动图层，尝试用第一个可见图层
+  if (doc.layers && doc.layers.length > 0) {
+    layer = doc.layers[0];
+    console.log('[CosAI Toolbox] 没有 activeLayer，使用第一个图层: ' + (layer?.name || 'unnamed'));
+    return layer;
+  }
+  return null;
+}
+
 // ========== 工具箱（修图常用功能）==========
 
 const ToolboxAPI = {
@@ -1182,9 +1201,9 @@ const ToolboxAPI = {
       if (!doc) throw new Error('没有打开的文档');
       console.log('[CosAI Toolbox] doc: ' + doc.title);
 
-      const sourceLayer = doc.activeLayer;
-      if (!sourceLayer) throw new Error('没有活动图层');
-      console.log('[CosAI Toolbox] sourceLayer: ' + sourceLayer.name + ' id=' + sourceLayer.id);
+      const sourceLayer = getSourceLayer(doc);
+      if (!sourceLayer) throw new Error('没有可处理的图层');
+      console.log('[CosAI Toolbox] sourceLayer: ' + sourceLayer.name + ' id=' + sourceLayer.id + ' kind=' + sourceLayer.kind);
 
       // 1. 创建低频层（复制 + 高斯模糊）
       console.log('[CosAI Toolbox] 复制低频层...');
@@ -1439,9 +1458,9 @@ const ToolboxAPI = {
       if (!doc) throw new Error('没有打开的文档');
       console.log('[CosAI Toolbox] doc: ' + doc.title);
 
-      const activeLayer = doc.activeLayer;
-      if (!activeLayer) throw new Error('没有活动图层');
-      console.log('[CosAI Toolbox] sourceLayer: ' + activeLayer.name + ' id=' + activeLayer.id);
+      const activeLayer = getSourceLayer(doc);
+      if (!activeLayer) throw new Error('没有可处理的图层');
+      console.log('[CosAI Toolbox] sourceLayer: ' + activeLayer.name + ' id=' + activeLayer.id + ' kind=' + activeLayer.kind);
 
       const constants = require('photoshop').constants.BlendMode;
 
