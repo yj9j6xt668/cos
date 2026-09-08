@@ -1161,6 +1161,292 @@ function base64ToArrayBuffer(base64) {
   return bytes.buffer;
 }
 
+// ========== 工具箱（修图常用功能）==========
+
+const ToolboxAPI = {
+  /**
+   * 高低频分离（Frequency Separation）
+   * - 复制当前图层两份
+   * - 低频层：高斯模糊（保留光影/颜色）
+   * - 高频层：应用图像（减去低频，保留纹理）+ 线性光混合模式
+   * @param {Object} options
+   * @param {number} options.radius - 高斯模糊半径（像素），默认 8
+   */
+  async frequencySeparation(options = {}) {
+    const radius = options.radius || 8;
+    const doc = app.activeDocument;
+    const activeLayer = doc.activeLayer;
+
+    await core.executeAsModal(async () => {
+      // 1. 获取当前图层（作为源）
+      const sourceLayer = activeLayer;
+      const sourceId = sourceLayer.id;
+
+      // 2. 创建低频层（复制 + 高斯模糊）
+      const lowFreq = await sourceLayer.duplicate();
+      lowFreq.name = '低频';
+      await batchPlay(
+        [
+          {
+            _obj: 'gaussianBlur',
+            radius: { _unit: 'pixelsUnit', _value: radius },
+            _target: [{ _ref: 'layer', _id: lowFreq.id }],
+          },
+        ],
+        { synchronousExecution: false }
+      );
+
+      // 3. 创建高频层（复制原图，在上面）
+      const highFreq = await sourceLayer.duplicate();
+      highFreq.name = '高频';
+
+      // 4. 高频层：应用图像（减去低频层）
+      // 应用图像：源=文档, 图层=低频, 混合=减去, 缩放=2, 补偿=128
+      await batchPlay(
+        [
+          {
+            _obj: 'applyImageEvent',
+            with: {
+              _obj: 'applyImage',
+              sourceDoc: doc.title, // 源文档名
+              sourceLayer: '低频',  // 源图层名
+              channel: { _enum: 'channel', _value: 'RGB' },
+              blending: { _enum: 'blendMode', _value: 'subtract' },
+              opacity: 100,
+              scale: 2,
+              offset: 0,
+              preservingTransparency: false,
+              invert: false,
+            },
+            _target: [{ _ref: 'layer', _id: highFreq.id }],
+          },
+        ],
+        { synchronousExecution: false }
+      );
+
+      // 5. 高频层混合模式设为线性光（Linear Light）
+      highFreq.blendMode = require('photoshop').constants.BlendMode.LINEARLIGHT;
+    }, { commandName: '高低频分离' });
+
+    return { success: true, radius };
+  },
+
+  /**
+   * 双曲线修图（Dodge & Burn with Curves）
+   * - 创建两个曲线调整图层：提亮 + 压暗
+   * - 都填充黑色蒙版（用白色画笔涂抹来作用）
+   * - 放入一个图层组
+   * @param {Object} options
+   * @param {number} options.dodgeAmount - 提亮强度 (0-100), 默认 25
+   * @param {number} options.burnAmount  - 压暗强度 (0-100), 默认 25
+   */
+  async dodgeBurnCurves(options = {}) {
+    const dodgeAmount = options.dodgeAmount ?? 25;
+    const burnAmount = options.burnAmount ?? 25;
+    const doc = app.activeDocument;
+
+    let dodgeLayerId = null;
+    let burnLayerId = null;
+    let groupId = null;
+
+    await core.executeAsModal(async () => {
+      // 计算曲线控制点偏移量
+      // input=128 时，output 偏移量 = 128 * amount/100 * 0.6（经验值）
+      const dodgeOffset = Math.round(128 * (dodgeAmount / 100) * 0.8);
+      const burnOffset = -Math.round(128 * (burnAmount / 100) * 0.8);
+
+      // 1. 创建提亮曲线图层（Dodge）
+      const dodgeResult = await batchPlay(
+        [
+          {
+            _obj: 'make',
+            _target: [{ _ref: 'adjustmentLayer' }],
+            using: {
+              _obj: 'curvesAdjustment',
+              curve: {
+                _obj: 'curves',
+                horizontal: { _unit: 'percentUnit', _value: 25 },
+                vertical: { _unit: 'percentUnit', _value: 25 },
+                curveData: [
+                  [0, 0],
+                  [64, 64 + dodgeOffset * 0.4],
+                  [128, 128 + dodgeOffset],
+                  [192, 192 + dodgeOffset * 0.6],
+                  [255, 255],
+                ].map(([x, y]) => ({
+                  _obj: 'point',
+                  horizontal: { _unit: 'percentUnit', _value: (x / 255) * 100 },
+                  vertical: { _unit: 'percentUnit', _value: (y / 255) * 100 },
+                })),
+              },
+              name: '提亮 (Dodge)',
+            },
+          },
+        ],
+        { synchronousExecution: false }
+      );
+      const dodgeLayer = doc.activeLayer;
+      dodgeLayerId = dodgeLayer.id;
+
+      // 2. 提亮层蒙版填充黑色（反相白色蒙版为黑色）
+      await batchPlay(
+        [
+          {
+            _obj: 'invert',
+            _target: [{ _ref: 'channel', _property: 'mask' }],
+            _isCommand: false,
+          },
+        ],
+        { synchronousExecution: false }
+      );
+
+      // 3. 创建压暗曲线图层（Burn）
+      const burnResult = await batchPlay(
+        [
+          {
+            _obj: 'make',
+            _target: [{ _ref: 'adjustmentLayer' }],
+            using: {
+              _obj: 'curvesAdjustment',
+              curve: {
+                _obj: 'curves',
+                horizontal: { _unit: 'percentUnit', _value: 25 },
+                vertical: { _unit: 'percentUnit', _value: 25 },
+                curveData: [
+                  [0, 0],
+                  [64, 64 + burnOffset * 0.4],
+                  [128, 128 + burnOffset],
+                  [192, 192 + burnOffset * 0.6],
+                  [255, 255],
+                ].map(([x, y]) => ({
+                  _obj: 'point',
+                  horizontal: { _unit: 'percentUnit', _value: (x / 255) * 100 },
+                  vertical: { _unit: 'percentUnit', _value: (y / 255) * 100 },
+                })),
+              },
+              name: '压暗 (Burn)',
+            },
+          },
+        ],
+        { synchronousExecution: false }
+      );
+      const burnLayer = doc.activeLayer;
+      burnLayerId = burnLayer.id;
+
+      // 4. 压暗层蒙版填充黑色
+      await batchPlay(
+        [
+          {
+            _obj: 'invert',
+            _target: [{ _ref: 'channel', _property: 'mask' }],
+            _isCommand: false,
+          },
+        ],
+        { synchronousExecution: false }
+      );
+
+      // 5. 把两个曲线图层放进一个组
+      // 先选中两个图层
+      await batchPlay(
+        [
+          {
+            _obj: 'select',
+            _target: [{ _ref: 'layer', _id: burnLayerId }],
+            selectionModifier: { _enum: 'addToSelectionContinuous', _value: 'addToSelection' },
+            makeVisible: false,
+          },
+          {
+            _obj: 'select',
+            _target: [{ _ref: 'layer', _id: dodgeLayerId }],
+            selectionModifier: { _enum: 'addToSelectionContinuous', _value: 'addToSelection' },
+            makeVisible: false,
+          },
+        ],
+        { synchronousExecution: false }
+      );
+
+      const groupResult = await batchPlay(
+        [
+          {
+            _obj: 'make',
+            _target: [{ _ref: 'layerSection' }],
+            from: { _ref: 'layer' },
+            layerSectionStart: {
+              _obj: 'layerSection',
+              name: '双曲线',
+              sectionStart: true,
+            },
+          },
+        ],
+        { synchronousExecution: false }
+      );
+      groupId = doc.activeLayer.id;
+    }, { commandName: '双曲线修图' });
+
+    return {
+      success: true,
+      dodgeLayerId,
+      burnLayerId,
+      groupId,
+    };
+  },
+
+  /**
+   * 辉光效果（Orton Effect / Glow）
+   * - 复制当前图层
+   * - 高斯模糊
+   * - 混合模式设为滤色（Screen）
+   * - 降低不透明度
+   * @param {Object} options
+   * @param {number} options.radius    - 高斯模糊半径，默认 20
+   * @param {number} options.opacity   - 不透明度 (0-100)，默认 50
+   * @param {string} options.blendMode - 混合模式，默认 'screen'（滤色），可选 'softLight'（柔光）等
+   */
+  async glowEffect(options = {}) {
+    const radius = options.radius ?? 20;
+    const opacity = options.opacity ?? 50;
+    const blendMode = (options.blendMode || 'screen').toUpperCase();
+    const doc = app.activeDocument;
+    const activeLayer = doc.activeLayer;
+
+    let glowLayerId = null;
+
+    await core.executeAsModal(async () => {
+      // 1. 复制当前图层
+      const glowLayer = await activeLayer.duplicate();
+      glowLayer.name = '辉光';
+      glowLayerId = glowLayer.id;
+
+      // 2. 高斯模糊
+      await batchPlay(
+        [
+          {
+            _obj: 'gaussianBlur',
+            radius: { _unit: 'pixelsUnit', _value: radius },
+            _target: [{ _ref: 'layer', _id: glowLayerId }],
+          },
+        ],
+        { synchronousExecution: false }
+      );
+
+      // 3. 设置混合模式
+      const constants = require('photoshop').constants.BlendMode;
+      glowLayer.blendMode = constants[blendMode] || constants.SCREEN;
+
+      // 4. 设置不透明度
+      glowLayer.opacity = opacity;
+    }, { commandName: '辉光效果' });
+
+    return {
+      success: true,
+      glowLayerId,
+      radius,
+      opacity,
+      blendMode,
+    };
+  },
+};
+
 // ========== 请求路由 ==========
 
 const apiHandlers = {
@@ -1227,6 +1513,11 @@ const apiHandlers = {
     ActionAPI.batchProcessLayers(layerIds, setName, actionName),
   batchExport: ({ layerIds, format, quality, outputFolder }) =>
     ActionAPI.batchExport(layerIds, { format, quality, outputFolder }),
+
+  // 工具箱
+  frequencySeparation: (data) => ToolboxAPI.frequencySeparation(data),
+  dodgeBurnCurves: (data) => ToolboxAPI.dodgeBurnCurves(data),
+  glowEffect: (data) => ToolboxAPI.glowEffect(data),
 };
 
 /**

@@ -17,6 +17,38 @@
       border-top: 1px solid #334155;
       pointer-events: none;
     }
+    #cosai-toolbox {
+      position: fixed; top: 0; left: 0; right: 0; z-index: 999998;
+      background: linear-gradient(180deg, rgba(26,26,46,.98), rgba(26,26,46,.9));
+      border-bottom: 1px solid #334155;
+      padding: 6px 8px;
+      display: flex; flex-wrap: wrap; gap: 6px; align-items: center;
+      font: 11px/1.3 -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      backdrop-filter: blur(8px);
+    }
+    #cosai-toolbox .tb-title {
+      color: #a78bfa; font-weight: 600; font-size: 11px;
+      margin-right: 2px;
+    }
+    #cosai-toolbox .tb-btn {
+      background: #4c1d95; color: #fff; border: none;
+      padding: 4px 10px; border-radius: 4px;
+      font-size: 11px; cursor: pointer;
+      transition: background .15s;
+    }
+    #cosai-toolbox .tb-btn:hover { background: #6d28d9; }
+    #cosai-toolbox .tb-btn:active { background: #7c3aed; }
+    #cosai-toolbox .tb-btn:disabled {
+      background: #374151; color: #6b7280; cursor: not-allowed;
+    }
+    #cosai-toolbox .tb-status {
+      margin-left: auto; color: #9ca3af; font-size: 10px;
+      max-width: 120px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    }
+    #cosai-toolbox .tb-sep {
+      width: 1px; height: 16px; background: #334155; margin: 0 2px;
+    }
+    #root { padding-top: 38px; }
   </style>
   <script>
     // ===== 调试系统（确保 document 未就绪时也能工作）=====
@@ -268,6 +300,142 @@
   <div id="root">
     <div style="display:flex;align-items:center;justify-content:center;width:100%;height:100%;color:#a78bfa;font-family:sans-serif;font-size:14px;">CosAI 加载中...</div>
   </div>
+
+  <!-- 浮动工具箱（顶部） -->
+  <div id="cosai-toolbox" style="display:none;">
+    <span class="tb-title">CosAI 工具箱</span>
+    <button class="tb-btn" id="tb-freq">高低频</button>
+    <button class="tb-btn" id="tb-curves">双曲线</button>
+    <button class="tb-btn" id="tb-glow">辉光</button>
+    <div class="tb-sep"></div>
+    <button class="tb-btn" id="tb-getimg" style="background:#0369a1;">获取图片</button>
+    <span class="tb-status" id="tb-status">就绪</span>
+  </div>
+
+  <script>
+    // ===== 工具箱：按钮绑定 =====
+    (function() {
+      function setStatus(msg) {
+        var el = document.getElementById('tb-status');
+        if (el) el.textContent = msg;
+        window.__dbg('[TB] ' + msg);
+      }
+
+      function setBtnLoading(btnId, loading) {
+        var btn = document.getElementById(btnId);
+        if (btn) {
+          btn.disabled = loading;
+          btn.style.opacity = loading ? '0.6' : '1';
+        }
+      }
+
+      function bindToolbox() {
+        var tb = document.getElementById('cosai-toolbox');
+        if (!tb) return;
+        tb.style.display = 'flex';
+
+        // 高低频分离
+        var btnFreq = document.getElementById('tb-freq');
+        if (btnFreq && !btnFreq.__bound) {
+          btnFreq.__bound = true;
+          btnFreq.addEventListener('click', function() {
+            setStatus('高低频处理中...');
+            setBtnLoading('tb-freq', true);
+            callHost('frequencySeparation', { radius: 8 })
+              .then(function(r) {
+                setStatus('高低频完成 ✓');
+                setTimeout(function(){ setStatus('就绪'); }, 2000);
+              })
+              .catch(function(err) {
+                setStatus('高低频失败: ' + err.message);
+              })
+              .finally(function() {
+                setBtnLoading('tb-freq', false);
+              });
+          });
+        }
+
+        // 双曲线修图
+        var btnCurves = document.getElementById('tb-curves');
+        if (btnCurves && !btnCurves.__bound) {
+          btnCurves.__bound = true;
+          btnCurves.addEventListener('click', function() {
+            setStatus('双曲线创建中...');
+            setBtnLoading('tb-curves', true);
+            callHost('dodgeBurnCurves', { dodgeAmount: 25, burnAmount: 25 })
+              .then(function(r) {
+                setStatus('双曲线完成 ✓');
+                setTimeout(function(){ setStatus('就绪'); }, 2000);
+              })
+              .catch(function(err) {
+                setStatus('双曲线失败: ' + err.message);
+              })
+              .finally(function() {
+                setBtnLoading('tb-curves', false);
+              });
+          });
+        }
+
+        // 辉光效果
+        var btnGlow = document.getElementById('tb-glow');
+        if (btnGlow && !btnGlow.__bound) {
+          btnGlow.__bound = true;
+          btnGlow.addEventListener('click', function() {
+            setStatus('辉光处理中...');
+            setBtnLoading('tb-glow', true);
+            callHost('glowEffect', { radius: 20, opacity: 50, blendMode: 'screen' })
+              .then(function(r) {
+                setStatus('辉光完成 ✓');
+                setTimeout(function(){ setStatus('就绪'); }, 2000);
+              })
+              .catch(function(err) {
+                setStatus('辉光失败: ' + err.message);
+              })
+              .finally(function() {
+                setBtnLoading('tb-glow', false);
+              });
+          });
+        }
+
+        // 获取图片
+        var btnImg = document.getElementById('tb-getimg');
+        if (btnImg && !btnImg.__bound) {
+          btnImg.__bound = true;
+          btnImg.addEventListener('click', function() {
+            setStatus('获取图片中...');
+            setBtnLoading('tb-getimg', true);
+            callHost('exportAsBase64', { format: 'png', source: 'merged' })
+              .then(function(r) {
+                setStatus('图片已获取 (' + (r.base64?.length || 0) + ' 字节)');
+                // 把 base64 发给 panel 显示或者做其他处理
+                setTimeout(function(){ setStatus('就绪'); }, 2000);
+              })
+              .catch(function(err) {
+                setStatus('获取失败: ' + err.message);
+              })
+              .finally(function() {
+                setBtnLoading('tb-getimg', false);
+              });
+          });
+        }
+      }
+
+      // 页面加载后绑定，并持续重试（等 React 渲染完成后 DOM 稳定）
+      function tryBind() {
+        bindToolbox();
+      }
+      if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', tryBind);
+      } else {
+        tryBind();
+      }
+      // 额外再尝试几次，确保 DOM 完全就绪
+      setTimeout(tryBind, 500);
+      setTimeout(tryBind, 1500);
+      setTimeout(tryBind, 3000);
+    })();
+  </script>
+
   <script src="app.js"></script>
 </body>
 </html>
