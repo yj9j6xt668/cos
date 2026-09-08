@@ -1169,15 +1169,96 @@ function base64ToArrayBuffer(base64) {
  */
 function getSourceLayer(doc) {
   if (!doc) return null;
-  let layer = doc.activeLayer;
-  if (layer) return layer;
-  // 没有活动图层，尝试用第一个可见图层
+
+  // 判断图层是否适合作为像素处理源（排除调整层/组）
+  const isPixelSource = (l) => {
+    if (!l || l.id == null) return false;
+    const kind = l.kind;
+    if (kind === 'adjustment' || kind === 'group' || kind === 'layerSection') return false;
+    return true;
+  };
+
+  let layer = null;
+  try { layer = doc.activeLayer; } catch (e) {}
+  // 活动图层可用就直接用
+  if (isPixelSource(layer)) return layer;
+
+  // 否则从上往下找第一个合适的像素图层
   if (doc.layers && doc.layers.length > 0) {
+    for (let i = 0; i < doc.layers.length; i++) {
+      const cand = doc.layers[i];
+      if (isPixelSource(cand)) {
+        console.log('[CosAI Toolbox] 选用像素图层: ' + (cand?.name || 'unnamed'));
+        return cand;
+      }
+    }
+    // 实在没有，退回第一个图层
     layer = doc.layers[0];
-    console.log('[CosAI Toolbox] 没有 activeLayer，使用第一个图层: ' + (layer?.name || 'unnamed'));
+    console.log('[CosAI Toolbox] 退回第一个图层: ' + (layer?.name || 'unnamed'));
     return layer;
   }
   return null;
+}
+
+/**
+ * 收集文档里所有图层 ID（含嵌套组）
+ * 用于「前后差分」检测新建图层
+ */
+function collectLayerIds(doc) {
+  const ids = [];
+  const walk = (layers) => {
+    for (let i = 0; i < layers.length; i++) {
+      const l = layers[i];
+      if (l && l.id != null) ids.push(l.id);
+      if (l && l.layers && l.layers.length) walk(l.layers);
+    }
+  };
+  try { walk(doc.layers); } catch (e) {}
+  return ids;
+}
+
+/**
+ * 通过 batchPlay 在 action 层获取当前活动图层 ID
+ * 不依赖 UXP DOM 的 doc.activeLayer（batchPlay 后 DOM 不同步）
+ */
+async function bpGetActiveLayerId() {
+  try {
+    const r = await batchPlay(
+      [
+        {
+          _obj: 'get',
+          _target: [
+            { _property: 'layerID' },
+            { _ref: 'layer', _enum: 'ordinal', _value: 'targetEnum' },
+          ],
+        },
+      ],
+      { synchronousExecution: true }
+    );
+    if (r && r[0] && r[0].layerID != null) return r[0].layerID;
+  } catch (e) {}
+  return null;
+}
+
+/**
+ * 新建图层后定位其 ID（双保险）
+ * 1. 优先 batchPlay get targetEnum
+ * 2. 回退前后 ID 差分
+ */
+async function resolveNewLayerId(doc, beforeIds) {
+  let id = await bpGetActiveLayerId();
+  if (id != null && !beforeIds.includes(id)) {
+    console.log('[Toolbox] resolveNewLayerId via activeId=' + id);
+    return id;
+  }
+  const afterIds = collectLayerIds(doc);
+  const fresh = afterIds.filter((x) => !beforeIds.includes(x));
+  if (fresh.length > 0) {
+    console.log('[Toolbox] resolveNewLayerId via diff=' + fresh[fresh.length - 1]);
+    return fresh[fresh.length - 1];
+  }
+  console.warn('[Toolbox] resolveNewLayerId 未能定位新图层 activeId=' + id + ' before=' + beforeIds.length + ' after=' + afterIds.length);
+  return id;
 }
 
 // ========== 工具箱（修图常用功能）==========
@@ -1226,10 +1307,12 @@ const ToolboxAPI = {
         );
       }
 
-      async function dup(name) {
-        // 必须先选中源图层再复制
-        const src = doc.activeLayer;
+      async function dup(srcId, name) {
+        // 用 findLayerById 按 ID 取图层对象，避免 doc.activeLayer 不同步
+        const src = findLayerById(doc.layers, srcId);
+        if (!src) throw new Error('找不到要复制的图层 id=' + srcId);
         const newLayer = await src.duplicate();
+        if (!newLayer || newLayer.id == null) throw new Error('复制图层失败');
         if (name) newLayer.name = name;
         return newLayer;
       }
@@ -1308,6 +1391,7 @@ const ToolboxAPI = {
             { synchronousExecution: true }
           );
         }
+        const beforeIds = collectLayerIds(doc);
         await batchPlay(
           [
             {
@@ -1319,7 +1403,7 @@ const ToolboxAPI = {
           ],
           { synchronousExecution: true }
         );
-        return doc.activeLayer.id;
+        return await resolveNewLayerId(doc, beforeIds);
       }
 
       // === 执行步骤 ===
@@ -1327,7 +1411,7 @@ const ToolboxAPI = {
       // 1. 选中源图层，复制低频层
       console.log('[Toolbox][高低频] 复制低频层...');
       await sel(sourceId);
-      const lowLayer = await dup('低频');
+      const lowLayer = await dup(sourceId, '低频');
       const lowId = lowLayer.id;
       console.log('[Toolbox][高低频] 低频层 id=' + lowId);
 
@@ -1339,7 +1423,7 @@ const ToolboxAPI = {
       // 3. 回到源图层，复制高频层
       console.log('[Toolbox][高低频] 复制高频层...');
       await sel(sourceId);
-      const highLayer = await dup('高频');
+      const highLayer = await dup(sourceId, '高频');
       const highId = highLayer.id;
       console.log('[Toolbox][高低频] 高频层 id=' + highId);
 
@@ -1408,6 +1492,7 @@ const ToolboxAPI = {
       }
 
       async function createCurves(name, points) {
+        const beforeIds = collectLayerIds(doc);
         const r = await batchPlay(
           [
             {
@@ -1439,9 +1524,9 @@ const ToolboxAPI = {
         if (r && r[0] && r[0]._obj === 'error') {
           throw new Error(r[0].message || `创建${name}失败`);
         }
-        const layer = doc.activeLayer;
-        if (!layer || !layer.id) throw new Error(`创建${name}后未能定位图层`);
-        return layer;
+        const newId = await resolveNewLayerId(doc, beforeIds);
+        if (newId == null) throw new Error(`创建${name}后未能定位图层`);
+        return newId;
       }
 
       async function fillMaskBlack(layerId) {
@@ -1512,6 +1597,7 @@ const ToolboxAPI = {
             { synchronousExecution: true }
           );
         }
+        const beforeIds = collectLayerIds(doc);
         await batchPlay(
           [
             {
@@ -1523,15 +1609,14 @@ const ToolboxAPI = {
           ],
           { synchronousExecution: true }
         );
-        return doc.activeLayer.id;
+        return await resolveNewLayerId(doc, beforeIds);
       }
 
       // === 执行步骤 ===
 
       // 1. 提亮曲线层
       console.log('[Toolbox][双曲线] 创建提亮层...');
-      const dodgeLayer = await createCurves('提亮 (Dodge)', makePoints(dodgeAmount, true));
-      const dodgeId = dodgeLayer.id;
+      const dodgeId = await createCurves('提亮 (Dodge)', makePoints(dodgeAmount, true));
       console.log('[Toolbox][双曲线] 提亮层 id=' + dodgeId);
 
       // 2. 提亮层蒙版填充黑色
@@ -1540,8 +1625,7 @@ const ToolboxAPI = {
 
       // 3. 压暗曲线层
       console.log('[Toolbox][双曲线] 创建压暗层...');
-      const burnLayer = await createCurves('压暗 (Burn)', makePoints(burnAmount, false));
-      const burnId = burnLayer.id;
+      const burnId = await createCurves('压暗 (Burn)', makePoints(burnAmount, false));
       console.log('[Toolbox][双曲线] 压暗层 id=' + burnId);
 
       // 4. 压暗层蒙版填充黑色
@@ -1614,9 +1698,11 @@ const ToolboxAPI = {
         );
       }
 
-      async function dup(name) {
-        const src = doc.activeLayer;
+      async function dup(srcId, name) {
+        const src = findLayerById(doc.layers, srcId);
+        if (!src) throw new Error('找不到要复制的图层 id=' + srcId);
         const newLayer = await src.duplicate();
+        if (!newLayer || newLayer.id == null) throw new Error('复制图层失败');
         if (name) newLayer.name = name;
         return newLayer;
       }
@@ -1667,7 +1753,7 @@ const ToolboxAPI = {
       // === 执行步骤 ===
       console.log('[Toolbox][辉光] 复制辉光层...');
       await sel(sourceId);
-      const glowLayer = await dup('辉光');
+      const glowLayer = await dup(sourceId, '辉光');
       const glowId = glowLayer.id;
       console.log('[Toolbox][辉光] 辉光层 id=' + glowId);
 
