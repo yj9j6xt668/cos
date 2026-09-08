@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>漫展AI修图</title>
+  <style>
+    html, body { margin:0; padding:0; width:100%; height:100%; overflow:hidden; background:#1a1a2e; font-family: sans-serif; }
+    #host { width:100%; height:100%; display:flex; flex-direction:column; }
+    #boot-loading { display:flex; align-items:center; justify-content:center; width:100%; height:100%; color:#a78bfa; font-size:14px; }
+    webview { flex:1; width:100%; min-height:0; border:none; display:block; }
+
+    /* 诊断工具栏 */
+    #diag-bar {
+      background: #0f172a;
+      border-bottom: 1px solid #334155;
+      padding: 6px 8px;
+      font-size: 11px;
+      color: #94a3b8;
+      display: flex;
+      gap: 6px;
+      flex-wrap: wrap;
+      align-items: center;
+      z-index: 1000;
+    }
+    #diag-bar button {
+      background: #334155;
+      color: #e2e8f0;
+      border: 1px solid #475569;
+      padding: 3px 8px;
+      font-size: 11px;
+      border-radius: 4px;
+      cursor: pointer;
+    }
+    #diag-bar button:hover { background: #475569; }
+    #diag-bar button:active { background: #1e293b; }
+    #diag-bar .status {
+      color: #fbbf24;
+      font-family: ui-monospace, Menlo, monospace;
+      font-size: 10px;
+      flex: 1;
+      min-width: 100px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    #diag-bar .status.ok { color: #4ade80; }
+    #diag-bar .status.err { color: #f87171; }
+  </style>
+</head>
+<body>
+  <div id="host">
+    <div id="diag-bar">
+      <button id="btn-test-export">测试导出</button>
+      <button id="btn-test-msg">发消息到webview</button>
+      <button id="btn-check-wv">检查webview</button>
+      <span id="diag-status" class="status">就绪</span>
+    </div>
+    <div id="boot-loading">CosAI 加载中...</div>
+  </div>
+  <script src="host.js"></script>
+  <script src="panel-boot.js"></script>
+  <script>
+    // ===== 诊断工具（panel 上下文直接运行）=====
+    (function () {
+      var statusEl = document.getElementById('diag-status');
+      function setStatus(msg, type) {
+        statusEl.textContent = msg;
+        statusEl.className = 'status' + (type ? ' ' + type : '');
+        console.log('[CosAI diag] ' + msg);
+      }
+
+      // 直接测试 exportAsBase64（绕过 webview，验证 host.js 是否正常）
+      document.getElementById('btn-test-export').addEventListener('click', async function () {
+        setStatus('导出中...');
+        try {
+          if (!window.__cosaiHost || !window.__cosaiHost.exportAsBase64) {
+            setStatus('host API 不存在', 'err');
+            return;
+          }
+          var result = await window.__cosaiHost.exportAsBase64({ format: 'png' });
+          var len = result && result.base64 ? result.base64.length : 0;
+          setStatus('导出成功! base64=' + len, 'ok');
+
+          // 同时测试直接写回到 PS（验证 paste/place 功能）
+          // 暂时只测试导出
+        } catch (err) {
+          setStatus('导出失败: ' + (err.message || String(err)).slice(0, 50), 'err');
+        }
+      });
+
+      // 测试发消息到 webview
+      document.getElementById('btn-test-msg').addEventListener('click', function () {
+        var wv = document.getElementById('cosai-app-webview');
+        if (!wv) { setStatus('webview 不存在', 'err'); return; }
+        try {
+          var payload = JSON.stringify({ type: 'diag-ping', message: 'hello from panel diag', time: Date.now() });
+          wv.postMessage(payload);
+          setStatus('已发送测试消息 len=' + payload.length, 'ok');
+        } catch (err) {
+          setStatus('发送失败: ' + err.message, 'err');
+        }
+      });
+
+      // 检查 webview 状态
+      document.getElementById('btn-check-wv').addEventListener('click', function () {
+        var wv = document.getElementById('cosai-app-webview');
+        if (!wv) { setStatus('webview 元素不存在', 'err'); return; }
+
+        var info = [];
+        info.push('src=' + (wv.src || 'none'));
+        info.push('tag=' + wv.tagName);
+
+        // 检查属性
+        if (wv.partition) info.push('partition=' + wv.partition);
+        if (wv.useragent) info.push('ua=' + wv.useragent.slice(0, 20));
+
+        // 检查方法
+        var methods = ['postMessage', 'executeJavaScript', 'getProcessId', 'reload', 'goBack', 'goForward', 'stop', 'clearData'];
+        methods.forEach(function (m) {
+          if (typeof wv[m] === 'function') info.push(m + '()');
+        });
+
+        // 检查事件监听数量
+        setStatus('webview: ' + info.join(', '), 'ok');
+      });
+
+      // 监听 webview 的 consolemessage 事件（如果支持的话）
+      setTimeout(function () {
+        var wv = document.getElementById('cosai-app-webview');
+        if (wv && wv.addEventListener) {
+          wv.addEventListener('consolemessage', function (e) {
+            var level = e.level || 'log';
+            var msg = e.message || '';
+            setStatus('WV[' + level + ']: ' + String(msg).slice(0, 60), level === 'error' ? 'err' : '');
+            console.log('[CosAI WV-console][' + level + '] ' + msg);
+          });
+          console.log('[CosAI diag] 已挂载 consolemessage 监听');
+        }
+      }, 2000);
+    })();
+  </script>
+</body>
+</html>

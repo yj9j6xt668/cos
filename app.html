@@ -1,0 +1,273 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>CosAI-v6</title>
+  <link rel="stylesheet" href="app.css" />
+  <style>
+    html, body { margin:0; padding:0; width:100%; height:100%; overflow:hidden; background:#1a1a2e; }
+    #root { width:100%; height:100%; }
+    #cosai-dbg {
+      position: fixed; left:0; right:0; bottom:0; z-index: 999999;
+      background: rgba(0,0,0,.92); color: #7dd3fc;
+      font: 10px/1.4 ui-monospace, Menlo, monospace;
+      padding: 4px 6px; max-height: 110px; overflow: auto;
+      white-space: pre-wrap; word-break: break-all;
+      border-top: 1px solid #334155;
+      pointer-events: none;
+    }
+  </style>
+  <script>
+    // ===== 调试系统（确保 document 未就绪时也能工作）=====
+    var __dbgLines = [];
+    var __dbgEl = null;
+    function __flushDbg() {
+      if (!__dbgEl) {
+        var host = document.body || document.documentElement;
+        if (!host) return;
+        __dbgEl = document.createElement('div');
+        __dbgEl.id = 'cosai-dbg';
+        host.appendChild(__dbgEl);
+      }
+      __dbgEl.textContent = __dbgLines.slice(0, 40).join('\n');
+    }
+    window.__dbg = function (msg) {
+      try {
+        var t = new Date().toLocaleTimeString() + '.' + String(new Date().getMilliseconds()).padStart(3, '0');
+        __dbgLines.unshift('[' + t + '] ' + msg);
+        if (__dbgLines.length > 50) __dbgLines.length = 50;
+        __flushDbg();
+      } catch (e) {}
+      // title 同步（panel 端可通过 page-title-updated 观察）
+      try { document.title = 'CosAI|' + String(msg).slice(0, 40); } catch (e) {}
+    };
+    // 如果 DOM 已就绪，立即创建调试条
+    if (document.body || document.documentElement) __flushDbg();
+
+    window.__dbg('INIT v6 starting...');
+
+    // ===== PS API 消息桥（webview 端）=====
+    (function () {
+      var reqId = 0;
+      var pending = {};
+
+      var hasUxpHost = typeof window !== 'undefined' &&
+        window.uxpHost && typeof window.uxpHost.postMessage === 'function';
+
+      window.__dbg('uxpHost=' + (hasUxpHost ? 'OK' : 'MISSING') +
+        ' type=' + (window.uxpHost ? typeof window.uxpHost.postMessage : 'n/a'));
+
+      function extractMessage(e) {
+        var raw = undefined;
+        var src = '';
+        // 优先尝试 e.message（UXP webview 的消息在这里）
+        if (e.message !== undefined && e.message !== null && e.message !== '') {
+          raw = e.message; src = 'e.message';
+        } else if (e.data !== undefined && e.data !== null && e.data !== '') {
+          raw = e.data; src = 'e.data';
+        } else if (e.detail !== undefined && e.detail !== null) {
+          if (typeof e.detail === 'string') { raw = e.detail; src = 'e.detail(str)'; }
+          else if (e.detail.data !== undefined) { raw = e.detail.data; src = 'e.detail.data'; }
+          else if (e.detail.message !== undefined) { raw = e.detail.message; src = 'e.detail.message'; }
+          else { raw = e.detail; src = 'e.detail(obj)'; }
+        }
+        return { raw: raw, source: src };
+      }
+
+      window.addEventListener('message', function (e) {
+        var info = extractMessage(e);
+        var raw = info.raw;
+
+        if (!raw || raw === '') {
+          // 可能是 ping 测试，打日志看看
+          var keys = [];
+          for (var k in e) { if (e.hasOwnProperty(k) && e[k] !== undefined) keys.push(k); }
+          window.__dbg('MSG-EMPTY from=' + info.source + ' keys=' + keys.join(','));
+          return;
+        }
+
+        window.__dbg('MSG-RCV src=' + info.source +
+          ' type=' + typeof raw +
+          ' len=' + (typeof raw === 'string' ? raw.length : 'n/a') +
+          ' preview=' + String(raw).slice(0, 50));
+
+        var data;
+        try {
+          data = (typeof raw === 'string') ? JSON.parse(raw) : raw;
+        } catch (err) {
+          window.__dbg('MSG-PARSE-ERR: ' + err.message);
+          return;
+        }
+
+        if (!data) return;
+
+        // 处理 panel 发来的 ping 测试
+        if (data.type === 'ping') {
+          window.__dbg('PING-RCVD from panel: ' + (data.message || ''));
+          // 回复 pong（uxpHost 自动序列化，传对象）
+          try {
+            window.uxpHost.postMessage({
+              id: 'pong-' + Date.now(),
+              method: '__pong',
+              args: [{ message: 'hello from webview', uxpHost: !!window.uxpHost }]
+            });
+            window.__dbg('PONG-SENT (object)');
+          } catch (err) {
+            window.__dbg('PONG-SEND-ERR: ' + err.message);
+          }
+          return;
+        }
+
+        // 正常响应处理
+        if (typeof data.id !== 'undefined') {
+          var p = pending[data.id];
+          if (p) {
+            if (data.error) {
+              window.__dbg('RESP-ERR id=' + data.id + ': ' + String(data.error.message || '').slice(0, 50));
+              p.reject(new Error(data.error.message || '操作失败'));
+            } else {
+              var rlen = data.result && typeof data.result === 'object'
+                ? JSON.stringify(data.result).length
+                : String(data.result || '').length;
+              window.__dbg('RESP-OK id=' + data.id + ' len=' + rlen);
+              p.resolve(data.result);
+            }
+            delete pending[data.id];
+          } else {
+            window.__dbg('RESP-UNKNOWN id=' + data.id);
+          }
+        }
+      });
+
+      function callHost(method, data) {
+        return new Promise(function (resolve, reject) {
+          if (!hasUxpHost) {
+            reject(new Error('[Bridge] 不在 WebView 环境 (uxpHost missing)'));
+            return;
+          }
+          var id = ++reqId;
+          pending[id] = { resolve: resolve, reject: reject };
+          setTimeout(function () {
+            if (pending[id]) {
+              delete pending[id];
+              window.__dbg('TIMEOUT ' + method + ' id=' + id);
+              reject(new Error('PS API 请求超时: ' + method));
+            }
+          }, 20000);
+
+          var payload = { id: id, method: method, args: [data || {}] };
+          try {
+            // uxpHost.postMessage 内部会自动序列化，直接传对象即可
+            window.uxpHost.postMessage(payload);
+            window.__dbg('SEND ' + method + ' id=' + id + ' (object)');
+          } catch (err) {
+            window.__dbg('SEND-ERR(obj) ' + method + ': ' + err.message);
+            // 回退：尝试字符串形式
+            try {
+              window.uxpHost.postMessage(JSON.stringify(payload));
+              window.__dbg('SEND-OK(str-fallback) ' + method + ' id=' + id);
+            } catch (err2) {
+              delete pending[id];
+              window.__dbg('SEND-ERR(str) ' + method + ': ' + err2.message);
+              reject(err2);
+            }
+          }
+        });
+      }
+
+      window.__cosai_ps_api = {
+        getActiveDocument: function () { return callHost('getDocumentInfo'); },
+        getDocuments: function () { return callHost('getDocuments'); },
+        getDocumentPixelsAsBase64: function () {
+          return callHost('exportAsBase64', { format: 'png' }).then(function (r) {
+            var len = r && r.base64 ? r.base64.length : 0;
+            window.__dbg('exportAsBase64 ok, b64len=' + len);
+            if (r && r.base64) return { base64: r.base64 };
+            if (typeof r === 'string') return { base64: r };
+            return r || { base64: '' };
+          });
+        },
+        getLayers: function () { return callHost('getAllLayers'); },
+        getActiveLayer: function () { return callHost('getActiveLayer'); },
+        selectLayer: function (nameOrId) {
+          if (typeof nameOrId === 'number') return callHost('selectLayer', { layerId: nameOrId });
+          return callHost('getAllLayers').then(function (layers) {
+            var found = findLayerByName(layers, nameOrId);
+            if (found) return callHost('selectLayer', { layerId: found.id });
+            return { success: false };
+          });
+        },
+        pastePixels: function (base64) {
+          return callHost('placeLayerFromBase64', { base64: base64, name: 'AI 生成' });
+        },
+        getSelectionBounds: function () { return callHost('getSelectionBounds'); },
+        showAlert: function (m) { window.__dbg('alert: ' + m); return Promise.resolve({ success: true }); },
+        undo: function () { return callHost('undo', { steps: 1 }); },
+        redo: function () { return callHost('redo', { steps: 1 }); },
+        getHistoryStates: function () { return callHost('getHistoryStates'); },
+      };
+
+      function findLayerByName(layers, name) {
+        if (!layers || !layers.length) return null;
+        for (var i = 0; i < layers.length; i++) {
+          if (layers[i].name === name) return layers[i];
+          if (layers[i].children) { var f = findLayerByName(layers[i].children, name); if (f) return f; }
+        }
+        return null;
+      }
+    })();
+
+    // ===== 自动测试 =====
+    window.addEventListener('load', function () {
+      window.__dbg('PAGE-LOAD event fired');
+      setTimeout(function () {
+        window.__dbg('AUTO-TEST starting...');
+        if (window.__cosai_ps_api && window.__cosai_ps_api.getDocumentPixelsAsBase64) {
+          window.__cosai_ps_api.getDocumentPixelsAsBase64()
+            .then(function (r) {
+              var len = r && r.base64 ? r.base64.length : 0;
+              window.__dbg('AUTO-TEST SUCCESS! base64=' + len);
+            })
+            .catch(function (err) {
+              window.__dbg('AUTO-TEST FAIL: ' + (err && err.message));
+            });
+        } else {
+          window.__dbg('AUTO-TEST SKIP: no API');
+        }
+      }, 2000);
+    });
+
+    // DOMContentLoaded 也打个标记
+    document.addEventListener('DOMContentLoaded', function () {
+      window.__dbg('DOMContentLoaded');
+      __flushDbg();
+    });
+
+    window.__dbg('SCRIPT parsed, waiting for load');
+
+    window.__cosaiFatal = function (title, detail) {
+      var el = document.getElementById('root') || document.body;
+      if (el) el.innerHTML = '<div style="padding:16px;color:#f87171;background:#1a1a2e;font-family:sans-serif;font-size:12px;height:100%;overflow:auto;box-sizing:border-box;">'
+        + '<div style="margin-bottom:8px;font-weight:bold;">' + title + '</div>'
+        + '<pre style="white-space:pre-wrap;word-break:break-all;margin:0;line-height:1.6;">' + String(detail || '').replace(/</g, '&lt;') + '</pre></div>';
+    };
+    window.addEventListener('error', function (e) {
+      var msg = (e.error && (e.error.stack || e.error.message)) || e.message || 'unknown';
+      window.__dbg('FATAL: ' + String(msg).slice(0, 80));
+      return true;
+    });
+    window.addEventListener('unhandledrejection', function (e) {
+      var r = e.reason;
+      var m = (r && (r.stack || r.message)) || String(r);
+      window.__dbg('UNHANDLED-REJ: ' + String(m).slice(0, 80));
+    });
+  </script>
+</head>
+<body>
+  <div id="root">
+    <div style="display:flex;align-items:center;justify-content:center;width:100%;height:100%;color:#a78bfa;font-family:sans-serif;font-size:14px;">CosAI 加载中...</div>
+  </div>
+  <script src="app.js"></script>
+</body>
+</html>

@@ -1,0 +1,59 @@
+{
+  "id": "com.cosai.psplugin",
+  "name": "CosAI - AI 漫展修图助手",
+  "version": "1.5.0",
+  "main": "index.html",
+  "manifestVersion": 5,
+  "host": {
+    "app": "PS",
+    "minVersion": "25.0.0"
+  },
+  "requiredPermissions": {
+    "localFileSystem": "fullAccess",
+    "network": {
+      "domains": [
+        "https://api.banana-ai.com",
+        "https://api.grs-ai.com",
+        "https://generativelanguage.googleapis.com",
+        "http://127.0.0.1:8188",
+        "all"
+      ]
+    },
+    "clipboard": "readAndWrite",
+    "rawClipboard": true,
+    "allowCodeGenerationFromStrings": true,
+    "webview": {
+      "allow": "yes",
+      "allowLocalRendering": "yes",
+      "enableMessageBridge": "localAndRemote",
+      "domains": [
+        "all"
+      ]
+    }
+  },
+  "entrypoints": [
+    {
+      "type": "panel",
+      "id": "cosai-main-panel",
+      "label": {
+        "default": "CosAI"
+      },
+      "minimumSize": { "width": 360, "height": 500 },
+      "maximumSize": { "width": 600, "height": 900 }
+    }
+  ],
+  "icons": [
+    {
+      "width": 32,
+      "height": 32,
+      "path": "icons/icon-32.png",
+      "scale": [1, 2]
+    },
+    {
+      "width": 48,
+      "height": 48,
+      "path": "icons/icon-48.png",
+      "scale": [1, 2]
+    }
+  ]
+}
