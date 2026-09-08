@@ -24,6 +24,9 @@ try {
   console.warn('PS UXP 环境未检测到，使用 Mock 模式');
 }
 
+// 版本标记：每次加载/每次工具箱调用都会打印，便于从日志确认当前运行的是哪份代码
+const COSAI_HOST_VERSION = 'v1.5.1-tbfix-batchplay-dup';
+
 // ========== 工具函数 ==========
 
 /**
@@ -1236,28 +1239,38 @@ async function bpGetActiveLayerId() {
       { synchronousExecution: true }
     );
     if (r && r[0] && r[0].layerID != null) return r[0].layerID;
-  } catch (e) {}
+  } catch (e) {
+    console.log('[Toolbox] bpGetActiveLayerId 失败: ' + (e && e.message ? e.message : e));
+  }
   return null;
 }
 
 /**
- * 新建图层后定位其 ID（双保险）
- * 1. 优先 batchPlay get targetEnum
- * 2. 回退前后 ID 差分
+ * 新建图层后定位其 ID（三重保险）
+ * 1. 优先 batchPlay get targetEnum（action 层，最可靠，不受 DOM 同步影响）
+ * 2. 回退 DOM activeLayer
+ * 3. 回退前后 ID 差分
  */
 async function resolveNewLayerId(doc, beforeIds) {
   let id = await bpGetActiveLayerId();
   if (id != null && !beforeIds.includes(id)) {
-    console.log('[Toolbox] resolveNewLayerId via activeId=' + id);
+    console.log('[Toolbox] resolveNewLayerId via bpActiveId=' + id);
     return id;
   }
+  try {
+    const domId = doc.activeLayer && doc.activeLayer.id;
+    if (domId != null && !beforeIds.includes(domId)) {
+      console.log('[Toolbox] resolveNewLayerId via domActiveLayer=' + domId);
+      return domId;
+    }
+  } catch (e) {}
   const afterIds = collectLayerIds(doc);
   const fresh = afterIds.filter((x) => !beforeIds.includes(x));
   if (fresh.length > 0) {
     console.log('[Toolbox] resolveNewLayerId via diff=' + fresh[fresh.length - 1]);
     return fresh[fresh.length - 1];
   }
-  console.warn('[Toolbox] resolveNewLayerId 未能定位新图层 activeId=' + id + ' before=' + beforeIds.length + ' after=' + afterIds.length);
+  console.warn('[Toolbox] resolveNewLayerId 未能定位新图层 bpId=' + id + ' before=' + beforeIds.length + ' after=' + afterIds.length);
   return id;
 }
 
@@ -1279,7 +1292,7 @@ const ToolboxAPI = {
    */
   async frequencySeparation(options = {}) {
     const radius = (options && options.radius != null) ? Number(options.radius) : 8;
-    console.log('[Toolbox][高低频] start, radius=' + radius);
+    console.log('[Toolbox][高低频] start ' + COSAI_HOST_VERSION + ', radius=' + radius);
 
     const result = await core.executeAsModal(async () => {
       const doc = app.activeDocument;
@@ -1308,13 +1321,40 @@ const ToolboxAPI = {
       }
 
       async function dup(srcId, name) {
-        // 用 findLayerById 按 ID 取图层对象，避免 doc.activeLayer 不同步
-        const src = findLayerById(doc.layers, srcId);
-        if (!src) throw new Error('找不到要复制的图层 id=' + srcId);
-        const newLayer = await src.duplicate();
-        if (!newLayer || newLayer.id == null) throw new Error('复制图层失败');
-        if (name) newLayer.name = name;
-        return newLayer;
+        // 方案A：DOM 复制（findLayerById 按 ID 取图层，避免 activeLayer 不同步）
+        try {
+          const src = findLayerById(doc.layers, srcId);
+          if (src && typeof src.duplicate === 'function') {
+            const nl = await src.duplicate();
+            if (nl && nl.id != null) {
+              if (name) { try { nl.name = name; } catch (e) {} }
+              console.log('[Toolbox] dup via DOM id=' + nl.id);
+              return { id: nl.id };
+            }
+          }
+        } catch (e) {
+          console.log('[Toolbox] DOM 复制失败，改用 batchPlay：' + (e && e.message ? e.message : e));
+        }
+        // 方案B：batchPlay 复制（完全走 action 层，规避 DOM 不同步）
+        const beforeIds = collectLayerIds(doc);
+        await sel(srcId);
+        const r = await batchPlay(
+          [{ _obj: 'duplicate', _target: [{ _ref: 'layer', _enum: 'ordinal', _value: 'targetEnum' }] }],
+          { synchronousExecution: true }
+        );
+        if (r && r[0] && r[0]._obj === 'error') throw new Error(r[0].message || '复制图层失败');
+        const newId = await resolveNewLayerId(doc, beforeIds);
+        if (newId == null) throw new Error('复制图层后未能定位新图层');
+        if (name) {
+          try {
+            await batchPlay(
+              [{ _obj: 'set', _target: [{ _ref: 'layer', _id: newId }], to: { _obj: 'layer', name: name } }],
+              { synchronousExecution: true }
+            );
+          } catch (e) {}
+        }
+        console.log('[Toolbox] dup via batchPlay id=' + newId);
+        return { id: newId };
       }
 
       async function gauss(id, r) {
@@ -1375,35 +1415,50 @@ const ToolboxAPI = {
       }
 
       async function group(ids, name) {
-        // 选第一个
-        await sel(ids[0]);
-        // 加选其余
+        const layers = ids.map((id) => findLayerById(doc.layers, id)).filter(Boolean);
+        if (layers.length === 0) throw new Error('编组失败：找不到要编组的图层');
+        // 首选官方 createLayerGroup（明确把 fromLayers 编成组）
+        try {
+          const grp = await doc.createLayerGroup({ name: name, fromLayers: layers });
+          if (grp && grp.id != null) {
+            console.log('[Toolbox] group via createLayerGroup id=' + grp.id);
+            return grp.id;
+          }
+        } catch (e) {
+          console.log('[Toolbox] createLayerGroup 失败，改用 batchPlay：' + (e && e.message ? e.message : e));
+        }
+        // 回退：batchPlay 选中后 make layerSection
+        await batchPlay(
+          [{ _obj: 'select', _target: [{ _ref: 'layer', _id: ids[0] }], makeVisible: false }],
+          { synchronousExecution: true }
+        );
         for (let i = 1; i < ids.length; i++) {
           await batchPlay(
-            [
-              {
-                _obj: 'select',
-                _target: [{ _ref: 'layer', _id: ids[i] }],
-                selectionModifier: { _enum: 'addToSelectionContinuous', _value: 'addToSelection' },
-                makeVisible: false,
-              },
-            ],
+            [{
+              _obj: 'select',
+              _target: [{ _ref: 'layer', _id: ids[i] }],
+              selectionModifier: { _enum: 'addToSelectionContinuous', _value: 'addToSelection' },
+              makeVisible: false,
+            }],
             { synchronousExecution: true }
           );
         }
         const beforeIds = collectLayerIds(doc);
         await batchPlay(
-          [
-            {
-              _obj: 'make',
-              _target: [{ _ref: 'layerSection' }],
-              from: { _ref: 'layer' },
-              layerSectionStart: { _obj: 'layerSection', name: name, sectionStart: true },
-            },
-          ],
+          [{ _obj: 'make', _target: [{ _ref: 'layerSection' }], from: { _ref: 'layer', _enum: 'ordinal', _value: 'targetEnum' } }],
           { synchronousExecution: true }
         );
-        return await resolveNewLayerId(doc, beforeIds);
+        const gid = await resolveNewLayerId(doc, beforeIds);
+        if (gid != null && name) {
+          try {
+            await batchPlay(
+              [{ _obj: 'set', _target: [{ _ref: 'layer', _id: gid }], to: { _obj: 'layer', name: name } }],
+              { synchronousExecution: true }
+            );
+          } catch (e) {}
+        }
+        console.log('[Toolbox] group via batchPlay id=' + gid);
+        return gid;
       }
 
       // === 执行步骤 ===
@@ -1473,7 +1528,7 @@ const ToolboxAPI = {
   async dodgeBurnCurves(options = {}) {
     const dodgeAmount = (options && options.dodgeAmount != null) ? Number(options.dodgeAmount) : 25;
     const burnAmount = (options && options.burnAmount != null) ? Number(options.burnAmount) : 25;
-    console.log('[Toolbox][双曲线] start, dodge=' + dodgeAmount + ' burn=' + burnAmount);
+    console.log('[Toolbox][双曲线] start ' + COSAI_HOST_VERSION + ', dodge=' + dodgeAmount + ' burn=' + burnAmount);
 
     const result = await core.executeAsModal(async () => {
       const doc = app.activeDocument;
@@ -1580,36 +1635,50 @@ const ToolboxAPI = {
       }
 
       async function group(ids, name) {
+        const layers = ids.map((id) => findLayerById(doc.layers, id)).filter(Boolean);
+        if (layers.length === 0) throw new Error('编组失败：找不到要编组的图层');
+        // 首选官方 createLayerGroup（明确把 fromLayers 编成组）
+        try {
+          const grp = await doc.createLayerGroup({ name: name, fromLayers: layers });
+          if (grp && grp.id != null) {
+            console.log('[Toolbox] group via createLayerGroup id=' + grp.id);
+            return grp.id;
+          }
+        } catch (e) {
+          console.log('[Toolbox] createLayerGroup 失败，改用 batchPlay：' + (e && e.message ? e.message : e));
+        }
+        // 回退：batchPlay 选中后 make layerSection
         await batchPlay(
           [{ _obj: 'select', _target: [{ _ref: 'layer', _id: ids[0] }], makeVisible: false }],
           { synchronousExecution: true }
         );
         for (let i = 1; i < ids.length; i++) {
           await batchPlay(
-            [
-              {
-                _obj: 'select',
-                _target: [{ _ref: 'layer', _id: ids[i] }],
-                selectionModifier: { _enum: 'addToSelectionContinuous', _value: 'addToSelection' },
-                makeVisible: false,
-              },
-            ],
+            [{
+              _obj: 'select',
+              _target: [{ _ref: 'layer', _id: ids[i] }],
+              selectionModifier: { _enum: 'addToSelectionContinuous', _value: 'addToSelection' },
+              makeVisible: false,
+            }],
             { synchronousExecution: true }
           );
         }
         const beforeIds = collectLayerIds(doc);
         await batchPlay(
-          [
-            {
-              _obj: 'make',
-              _target: [{ _ref: 'layerSection' }],
-              from: { _ref: 'layer' },
-              layerSectionStart: { _obj: 'layerSection', name: name, sectionStart: true },
-            },
-          ],
+          [{ _obj: 'make', _target: [{ _ref: 'layerSection' }], from: { _ref: 'layer', _enum: 'ordinal', _value: 'targetEnum' } }],
           { synchronousExecution: true }
         );
-        return await resolveNewLayerId(doc, beforeIds);
+        const gid = await resolveNewLayerId(doc, beforeIds);
+        if (gid != null && name) {
+          try {
+            await batchPlay(
+              [{ _obj: 'set', _target: [{ _ref: 'layer', _id: gid }], to: { _obj: 'layer', name: name } }],
+              { synchronousExecution: true }
+            );
+          } catch (e) {}
+        }
+        console.log('[Toolbox] group via batchPlay id=' + gid);
+        return gid;
       }
 
       // === 执行步骤 ===
@@ -1667,7 +1736,7 @@ const ToolboxAPI = {
     const radius = (options && options.radius != null) ? Number(options.radius) : 20;
     const opacity = (options && options.opacity != null) ? Number(options.opacity) : 50;
     const blendMode = (options && options.blendMode) ? String(options.blendMode).toLowerCase() : 'screen';
-    console.log('[Toolbox][辉光] start, radius=' + radius + ' opacity=' + opacity + ' mode=' + blendMode);
+    console.log('[Toolbox][辉光] start ' + COSAI_HOST_VERSION + ', radius=' + radius + ' opacity=' + opacity + ' mode=' + blendMode);
 
     // 混合模式映射
     const modeMap = {
@@ -1699,12 +1768,40 @@ const ToolboxAPI = {
       }
 
       async function dup(srcId, name) {
-        const src = findLayerById(doc.layers, srcId);
-        if (!src) throw new Error('找不到要复制的图层 id=' + srcId);
-        const newLayer = await src.duplicate();
-        if (!newLayer || newLayer.id == null) throw new Error('复制图层失败');
-        if (name) newLayer.name = name;
-        return newLayer;
+        // 方案A：DOM 复制（findLayerById 按 ID 取图层，避免 activeLayer 不同步）
+        try {
+          const src = findLayerById(doc.layers, srcId);
+          if (src && typeof src.duplicate === 'function') {
+            const nl = await src.duplicate();
+            if (nl && nl.id != null) {
+              if (name) { try { nl.name = name; } catch (e) {} }
+              console.log('[Toolbox] dup via DOM id=' + nl.id);
+              return { id: nl.id };
+            }
+          }
+        } catch (e) {
+          console.log('[Toolbox] DOM 复制失败，改用 batchPlay：' + (e && e.message ? e.message : e));
+        }
+        // 方案B：batchPlay 复制（完全走 action 层，规避 DOM 不同步）
+        const beforeIds = collectLayerIds(doc);
+        await sel(srcId);
+        const r = await batchPlay(
+          [{ _obj: 'duplicate', _target: [{ _ref: 'layer', _enum: 'ordinal', _value: 'targetEnum' }] }],
+          { synchronousExecution: true }
+        );
+        if (r && r[0] && r[0]._obj === 'error') throw new Error(r[0].message || '复制图层失败');
+        const newId = await resolveNewLayerId(doc, beforeIds);
+        if (newId == null) throw new Error('复制图层后未能定位新图层');
+        if (name) {
+          try {
+            await batchPlay(
+              [{ _obj: 'set', _target: [{ _ref: 'layer', _id: newId }], to: { _obj: 'layer', name: name } }],
+              { synchronousExecution: true }
+            );
+          } catch (e) {}
+        }
+        console.log('[Toolbox] dup via batchPlay id=' + newId);
+        return { id: newId };
       }
 
       async function gauss(id, r) {
@@ -1891,7 +1988,7 @@ app?.addNotificationListener('layersChanged', () => {
   document.dispatchEvent(event);
 });
 
-console.log('[CosAI Host] 宿主脚本已加载');
+console.log('[CosAI Host] 宿主脚本已加载 ' + COSAI_HOST_VERSION);
 
 // 暴露到全局，方便诊断和直接调用
 window.__cosaiHost = {
