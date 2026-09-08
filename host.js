@@ -1173,19 +1173,28 @@ const ToolboxAPI = {
    * @param {number} options.radius - 高斯模糊半径（像素），默认 8
    */
   async frequencySeparation(options = {}) {
-    const radius = options.radius || 8;
-    const doc = app.activeDocument;
-    const activeLayer = doc.activeLayer;
+    const radius = (options && options.radius) ? options.radius : 8;
+    console.log('[CosAI Toolbox] frequencySeparation start, radius=' + radius);
 
-    await core.executeAsModal(async () => {
-      // 1. 获取当前图层（作为源）
-      const sourceLayer = activeLayer;
-      const sourceId = sourceLayer.id;
+    const result = await core.executeAsModal(async (executionContext) => {
+      // 在 modal 上下文内获取文档和图层（确保引用有效）
+      const doc = app.activeDocument;
+      if (!doc) throw new Error('没有打开的文档');
+      console.log('[CosAI Toolbox] doc: ' + doc.title);
 
-      // 2. 创建低频层（复制 + 高斯模糊）
+      const sourceLayer = doc.activeLayer;
+      if (!sourceLayer) throw new Error('没有活动图层');
+      console.log('[CosAI Toolbox] sourceLayer: ' + sourceLayer.name + ' id=' + sourceLayer.id);
+
+      // 1. 创建低频层（复制 + 高斯模糊）
+      console.log('[CosAI Toolbox] 复制低频层...');
       const lowFreq = await sourceLayer.duplicate();
+      if (!lowFreq) throw new Error('复制图层失败（低频）');
       lowFreq.name = '低频';
-      await batchPlay(
+      console.log('[CosAI Toolbox] 低频层已创建, id=' + lowFreq.id);
+
+      console.log('[CosAI Toolbox] 高斯模糊（低频）...');
+      const gaussResult = await batchPlay(
         [
           {
             _obj: 'gaussianBlur',
@@ -1195,26 +1204,30 @@ const ToolboxAPI = {
         ],
         { synchronousExecution: false }
       );
+      console.log('[CosAI Toolbox] 高斯模糊完成');
 
-      // 3. 创建高频层（复制原图，在上面）
+      // 2. 创建高频层（复制原图，在上面）
+      console.log('[CosAI Toolbox] 复制高频层...');
       const highFreq = await sourceLayer.duplicate();
+      if (!highFreq) throw new Error('复制图层失败（高频）');
       highFreq.name = '高频';
+      console.log('[CosAI Toolbox] 高频层已创建, id=' + highFreq.id);
 
-      // 4. 高频层：应用图像（减去低频层）
-      // 应用图像：源=文档, 图层=低频, 混合=减去, 缩放=2, 补偿=128
-      await batchPlay(
+      // 3. 高频层：应用图像（减去低频层）
+      // 应用图像：源=当前文档, 图层=低频, 混合=减去, 缩放=2, 补偿值=128
+      console.log('[CosAI Toolbox] 应用图像（减去低频）...');
+      const applyResult = await batchPlay(
         [
           {
             _obj: 'applyImageEvent',
             with: {
               _obj: 'applyImage',
-              sourceDoc: doc.title, // 源文档名
-              sourceLayer: '低频',  // 源图层名
+              with: { _ref: [{ _ref: 'layer', _name: '低频' }] },
               channel: { _enum: 'channel', _value: 'RGB' },
               blending: { _enum: 'blendMode', _value: 'subtract' },
               opacity: 100,
               scale: 2,
-              offset: 0,
+              offset: 128,
               preservingTransparency: false,
               invert: false,
             },
@@ -1223,12 +1236,18 @@ const ToolboxAPI = {
         ],
         { synchronousExecution: false }
       );
+      console.log('[CosAI Toolbox] 应用图像完成');
 
-      // 5. 高频层混合模式设为线性光（Linear Light）
-      highFreq.blendMode = require('photoshop').constants.BlendMode.LINEARLIGHT;
+      // 4. 高频层混合模式设为线性光（Linear Light）
+      const blendMode = require('photoshop').constants.BlendMode.LINEARLIGHT;
+      highFreq.blendMode = blendMode;
+      console.log('[CosAI Toolbox] 高频层混合模式已设为线性光');
+
+      return { success: true, radius: radius };
     }, { commandName: '高低频分离' });
 
-    return { success: true, radius };
+    console.log('[CosAI Toolbox] frequencySeparation done');
+    return result;
   },
 
   /**
@@ -1241,21 +1260,44 @@ const ToolboxAPI = {
    * @param {number} options.burnAmount  - 压暗强度 (0-100), 默认 25
    */
   async dodgeBurnCurves(options = {}) {
-    const dodgeAmount = options.dodgeAmount ?? 25;
-    const burnAmount = options.burnAmount ?? 25;
-    const doc = app.activeDocument;
+    const dodgeAmount = (options && options.dodgeAmount != null) ? options.dodgeAmount : 25;
+    const burnAmount = (options && options.burnAmount != null) ? options.burnAmount : 25;
+    console.log('[CosAI Toolbox] dodgeBurnCurves start, dodge=' + dodgeAmount + ' burn=' + burnAmount);
 
-    let dodgeLayerId = null;
-    let burnLayerId = null;
-    let groupId = null;
+    const result = await core.executeAsModal(async () => {
+      const doc = app.activeDocument;
+      if (!doc) throw new Error('没有打开的文档');
+      console.log('[CosAI Toolbox] doc: ' + doc.title);
 
-    await core.executeAsModal(async () => {
+      const photoshop = require('photoshop');
+      const BlendMode = photoshop.constants.BlendMode;
+
       // 计算曲线控制点偏移量
-      // input=128 时，output 偏移量 = 128 * amount/100 * 0.6（经验值）
-      const dodgeOffset = Math.round(128 * (dodgeAmount / 100) * 0.8);
-      const burnOffset = -Math.round(128 * (burnAmount / 100) * 0.8);
+      const dodgeOffset = Math.round(30 * (dodgeAmount / 100));
+      const burnOffset = -Math.round(30 * (burnAmount / 100));
+
+      // 生成曲线点（百分比）
+      function makeCurvePoints(offset) {
+        const points = [
+          { x: 0, y: 0 },
+          { x: 25, y: 25 + offset * 0.4 },
+          { x: 50, y: 50 + offset },
+          { x: 75, y: 75 + offset * 0.6 },
+          { x: 100, y: 100 },
+        ];
+        return points.map(p => ({
+          _obj: 'point',
+          horizontal: { _unit: 'percentUnit', _value: p.x },
+          vertical: { _unit: 'percentUnit', _value: p.y },
+        }));
+      }
+
+      let dodgeLayerId = null;
+      let burnLayerId = null;
+      let groupId = null;
 
       // 1. 创建提亮曲线图层（Dodge）
+      console.log('[CosAI Toolbox] 创建提亮曲线图层...');
       const dodgeResult = await batchPlay(
         [
           {
@@ -1267,17 +1309,7 @@ const ToolboxAPI = {
                 _obj: 'curves',
                 horizontal: { _unit: 'percentUnit', _value: 25 },
                 vertical: { _unit: 'percentUnit', _value: 25 },
-                curveData: [
-                  [0, 0],
-                  [64, 64 + dodgeOffset * 0.4],
-                  [128, 128 + dodgeOffset],
-                  [192, 192 + dodgeOffset * 0.6],
-                  [255, 255],
-                ].map(([x, y]) => ({
-                  _obj: 'point',
-                  horizontal: { _unit: 'percentUnit', _value: (x / 255) * 100 },
-                  vertical: { _unit: 'percentUnit', _value: (y / 255) * 100 },
-                })),
+                curveData: makeCurvePoints(dodgeOffset),
               },
               name: '提亮 (Dodge)',
             },
@@ -1287,8 +1319,10 @@ const ToolboxAPI = {
       );
       const dodgeLayer = doc.activeLayer;
       dodgeLayerId = dodgeLayer.id;
+      console.log('[CosAI Toolbox] 提亮层已创建 id=' + dodgeLayerId);
 
       // 2. 提亮层蒙版填充黑色（反相白色蒙版为黑色）
+      console.log('[CosAI Toolbox] 反相提亮层蒙版...');
       await batchPlay(
         [
           {
@@ -1301,6 +1335,7 @@ const ToolboxAPI = {
       );
 
       // 3. 创建压暗曲线图层（Burn）
+      console.log('[CosAI Toolbox] 创建压暗曲线图层...');
       const burnResult = await batchPlay(
         [
           {
@@ -1312,17 +1347,7 @@ const ToolboxAPI = {
                 _obj: 'curves',
                 horizontal: { _unit: 'percentUnit', _value: 25 },
                 vertical: { _unit: 'percentUnit', _value: 25 },
-                curveData: [
-                  [0, 0],
-                  [64, 64 + burnOffset * 0.4],
-                  [128, 128 + burnOffset],
-                  [192, 192 + burnOffset * 0.6],
-                  [255, 255],
-                ].map(([x, y]) => ({
-                  _obj: 'point',
-                  horizontal: { _unit: 'percentUnit', _value: (x / 255) * 100 },
-                  vertical: { _unit: 'percentUnit', _value: (y / 255) * 100 },
-                })),
+                curveData: makeCurvePoints(burnOffset),
               },
               name: '压暗 (Burn)',
             },
@@ -1332,8 +1357,10 @@ const ToolboxAPI = {
       );
       const burnLayer = doc.activeLayer;
       burnLayerId = burnLayer.id;
+      console.log('[CosAI Toolbox] 压暗层已创建 id=' + burnLayerId);
 
       // 4. 压暗层蒙版填充黑色
+      console.log('[CosAI Toolbox] 反相压暗层蒙版...');
       await batchPlay(
         [
           {
@@ -1346,15 +1373,10 @@ const ToolboxAPI = {
       );
 
       // 5. 把两个曲线图层放进一个组
-      // 先选中两个图层
+      console.log('[CosAI Toolbox] 创建双曲线组...');
+      // 先选中两个图层（压暗层是当前活动层，再加选提亮层）
       await batchPlay(
         [
-          {
-            _obj: 'select',
-            _target: [{ _ref: 'layer', _id: burnLayerId }],
-            selectionModifier: { _enum: 'addToSelectionContinuous', _value: 'addToSelection' },
-            makeVisible: false,
-          },
           {
             _obj: 'select',
             _target: [{ _ref: 'layer', _id: dodgeLayerId }],
@@ -1381,14 +1403,18 @@ const ToolboxAPI = {
         { synchronousExecution: false }
       );
       groupId = doc.activeLayer.id;
+      console.log('[CosAI Toolbox] 双曲线组已创建 id=' + groupId);
+
+      return {
+        success: true,
+        dodgeLayerId: dodgeLayerId,
+        burnLayerId: burnLayerId,
+        groupId: groupId,
+      };
     }, { commandName: '双曲线修图' });
 
-    return {
-      success: true,
-      dodgeLayerId,
-      burnLayerId,
-      groupId,
-    };
+    console.log('[CosAI Toolbox] dodgeBurnCurves done');
+    return result;
   },
 
   /**
@@ -1403,21 +1429,32 @@ const ToolboxAPI = {
    * @param {string} options.blendMode - 混合模式，默认 'screen'（滤色），可选 'softLight'（柔光）等
    */
   async glowEffect(options = {}) {
-    const radius = options.radius ?? 20;
-    const opacity = options.opacity ?? 50;
-    const blendMode = (options.blendMode || 'screen').toUpperCase();
-    const doc = app.activeDocument;
-    const activeLayer = doc.activeLayer;
+    const radius = (options && options.radius != null) ? options.radius : 20;
+    const opacity = (options && options.opacity != null) ? options.opacity : 50;
+    const blendMode = (options && options.blendMode) ? options.blendMode.toUpperCase() : 'SCREEN';
+    console.log('[CosAI Toolbox] glowEffect start, radius=' + radius + ' opacity=' + opacity + ' mode=' + blendMode);
 
-    let glowLayerId = null;
+    const result = await core.executeAsModal(async () => {
+      const doc = app.activeDocument;
+      if (!doc) throw new Error('没有打开的文档');
+      console.log('[CosAI Toolbox] doc: ' + doc.title);
 
-    await core.executeAsModal(async () => {
+      const activeLayer = doc.activeLayer;
+      if (!activeLayer) throw new Error('没有活动图层');
+      console.log('[CosAI Toolbox] sourceLayer: ' + activeLayer.name + ' id=' + activeLayer.id);
+
+      const constants = require('photoshop').constants.BlendMode;
+
       // 1. 复制当前图层
+      console.log('[CosAI Toolbox] 复制辉光层...');
       const glowLayer = await activeLayer.duplicate();
+      if (!glowLayer) throw new Error('复制图层失败');
       glowLayer.name = '辉光';
-      glowLayerId = glowLayer.id;
+      const glowLayerId = glowLayer.id;
+      console.log('[CosAI Toolbox] 辉光层已创建 id=' + glowLayerId);
 
       // 2. 高斯模糊
+      console.log('[CosAI Toolbox] 高斯模糊（辉光）...');
       await batchPlay(
         [
           {
@@ -1428,22 +1465,28 @@ const ToolboxAPI = {
         ],
         { synchronousExecution: false }
       );
+      console.log('[CosAI Toolbox] 高斯模糊完成');
 
       // 3. 设置混合模式
-      const constants = require('photoshop').constants.BlendMode;
-      glowLayer.blendMode = constants[blendMode] || constants.SCREEN;
+      const modeKey = blendMode;
+      glowLayer.blendMode = constants[modeKey] || constants.SCREEN;
+      console.log('[CosAI Toolbox] 混合模式已设为 ' + (constants[modeKey] ? modeKey : 'SCREEN'));
 
       // 4. 设置不透明度
       glowLayer.opacity = opacity;
+      console.log('[CosAI Toolbox] 不透明度已设为 ' + opacity);
+
+      return {
+        success: true,
+        glowLayerId: glowLayerId,
+        radius: radius,
+        opacity: opacity,
+        blendMode: blendMode,
+      };
     }, { commandName: '辉光效果' });
 
-    return {
-      success: true,
-      glowLayerId,
-      radius,
-      opacity,
-      blendMode,
-    };
+    console.log('[CosAI Toolbox] glowEffect done');
+    return result;
   },
 };
 
