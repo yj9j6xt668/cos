@@ -1373,240 +1373,324 @@ const ToolboxAPI = {
 
   /**
    * 双曲线修图（Dodge & Burn with Curves）
-   * - 创建两个曲线调整图层：提亮 + 压暗
-   * - 都填充黑色蒙版（用白色画笔涂抹来作用）
-   * - 放入一个图层组
+   * 参考 HHPS 实现
+   *
+   * 步骤：
+   * 1. 创建提亮曲线调整图层（蒙版填充黑色）
+   * 2. 创建压暗曲线调整图层（蒙版填充黑色）
+   * 3. 两个图层编为「双曲线」组
+   *
+   * 使用：用白色画笔在蒙版上涂抹，哪里需要提亮/压暗就涂哪里
+   *
    * @param {Object} options
-   * @param {number} options.dodgeAmount - 提亮强度 (0-100), 默认 25
-   * @param {number} options.burnAmount  - 压暗强度 (0-100), 默认 25
+   * @param {number} options.dodgeAmount - 提亮强度 (0-100)，默认 25
+   * @param {number} options.burnAmount  - 压暗强度 (0-100)，默认 25
    */
   async dodgeBurnCurves(options = {}) {
-    const dodgeAmount = (options && options.dodgeAmount != null) ? options.dodgeAmount : 25;
-    const burnAmount = (options && options.burnAmount != null) ? options.burnAmount : 25;
-    console.log('[CosAI Toolbox] dodgeBurnCurves start, dodge=' + dodgeAmount + ' burn=' + burnAmount);
+    const dodgeAmount = (options && options.dodgeAmount != null) ? Number(options.dodgeAmount) : 25;
+    const burnAmount = (options && options.burnAmount != null) ? Number(options.burnAmount) : 25;
+    console.log('[Toolbox][双曲线] start, dodge=' + dodgeAmount + ' burn=' + burnAmount);
 
     const result = await core.executeAsModal(async () => {
       const doc = app.activeDocument;
       if (!doc) throw new Error('没有打开的文档');
-      console.log('[CosAI Toolbox] doc: ' + doc.title);
 
-      const photoshop = require('photoshop');
-      const BlendMode = photoshop.constants.BlendMode;
-
-      // 计算曲线控制点偏移量
-      const dodgeOffset = Math.round(30 * (dodgeAmount / 100));
-      const burnOffset = -Math.round(30 * (burnAmount / 100));
-
-      // 生成曲线点（百分比）
-      function makeCurvePoints(offset) {
-        const points = [
-          { x: 0, y: 0 },
-          { x: 25, y: 25 + offset * 0.4 },
-          { x: 50, y: 50 + offset },
-          { x: 75, y: 75 + offset * 0.6 },
-          { x: 100, y: 100 },
+      // === 辅助函数 ===
+      function makePoints(strength, isDodge) {
+        const midOffset = Math.round(40 * (strength / 100) * (isDodge ? 1 : -1));
+        return [
+          [0, 0],
+          [64, 64 + Math.round(midOffset * 0.4)],
+          [128, 128 + midOffset],
+          [192, 192 + Math.round(midOffset * 0.6)],
+          [255, 255],
         ];
-        return points.map(p => ({
-          _obj: 'point',
-          horizontal: { _unit: 'percentUnit', _value: p.x },
-          vertical: { _unit: 'percentUnit', _value: p.y },
-        }));
       }
 
-      let dodgeLayerId = null;
-      let burnLayerId = null;
-      let groupId = null;
-
-      // 1. 创建提亮曲线图层（Dodge）
-      console.log('[CosAI Toolbox] 创建提亮曲线图层...');
-      const dodgeResult = await batchPlay(
-        [
-          {
-            _obj: 'make',
-            _target: [{ _ref: 'adjustmentLayer' }],
-            using: {
-              _obj: 'curvesAdjustment',
-              curve: {
-                _obj: 'curves',
-                horizontal: { _unit: 'percentUnit', _value: 25 },
-                vertical: { _unit: 'percentUnit', _value: 25 },
-                curveData: makeCurvePoints(dodgeOffset),
+      async function createCurves(name, points) {
+        const r = await batchPlay(
+          [
+            {
+              _obj: 'make',
+              _target: [{ _ref: 'adjustmentLayer' }],
+              using: {
+                _obj: 'adjustmentLayer',
+                name: name,
+                type: {
+                  _obj: 'curves',
+                  presetKind: { _enum: 'presetKindType', _value: 'presetKindCustom' },
+                  adjustment: [
+                    {
+                      _obj: 'curvesAdjustment',
+                      channel: { _ref: 'channel', _enum: 'channel', _value: 'composite' },
+                      curve: points.map(([x, y]) => ({
+                        _obj: 'paint',
+                        horizontal: x,
+                        vertical: y,
+                      })),
+                    },
+                  ],
+                },
               },
-              name: '提亮 (Dodge)',
             },
-          },
-        ],
-        { synchronousExecution: false }
-      );
-      const dodgeLayer = doc.activeLayer;
-      dodgeLayerId = dodgeLayer.id;
-      console.log('[CosAI Toolbox] 提亮层已创建 id=' + dodgeLayerId);
+          ],
+          { synchronousExecution: true }
+        );
+        if (r && r[0] && r[0]._obj === 'error') {
+          throw new Error(r[0].message || `创建${name}失败`);
+        }
+        const layer = doc.activeLayer;
+        if (!layer || !layer.id) throw new Error(`创建${name}后未能定位图层`);
+        return layer;
+      }
 
-      // 2. 提亮层蒙版填充黑色（反相白色蒙版为黑色）
-      console.log('[CosAI Toolbox] 反相提亮层蒙版...');
-      await batchPlay(
-        [
-          {
-            _obj: 'invert',
-            _target: [{ _ref: 'channel', _property: 'mask' }],
-            _isCommand: false,
-          },
-        ],
-        { synchronousExecution: false }
-      );
+      async function fillMaskBlack(layerId) {
+        // 优先用 imaging API 精准填充黑色蒙版
+        try {
+          const imaging = require('photoshop').imaging;
+          if (imaging && imaging.createImageDataFromBuffer) {
+            const width = Math.max(1, Math.round(Number(doc.width)));
+            const height = Math.max(1, Math.round(Number(doc.height)));
+            const pixels = new Uint8Array(width * height); // 全 0 = 全黑
 
-      // 3. 创建压暗曲线图层（Burn）
-      console.log('[CosAI Toolbox] 创建压暗曲线图层...');
-      const burnResult = await batchPlay(
-        [
-          {
-            _obj: 'make',
-            _target: [{ _ref: 'adjustmentLayer' }],
-            using: {
-              _obj: 'curvesAdjustment',
-              curve: {
-                _obj: 'curves',
-                horizontal: { _unit: 'percentUnit', _value: 25 },
-                vertical: { _unit: 'percentUnit', _value: 25 },
-                curveData: makeCurvePoints(burnOffset),
+            let imageData = null;
+            try {
+              imageData = await imaging.createImageDataFromBuffer(pixels, {
+                width: width,
+                height: height,
+                components: 1,
+                componentSize: 8,
+                chunky: false,
+                colorSpace: 'Grayscale',
+                colorProfile: 'Gray Gamma 2.2',
+              });
+              await imaging.putLayerMask({
+                documentID: doc.id,
+                layerID: layerId,
+                imageData: imageData,
+                replace: true,
+                kind: 'user',
+              });
+            } finally {
+              try { imageData?.dispose?.(); } catch (e) {}
+            }
+            return;
+          }
+        } catch (e) {
+          console.log('[Toolbox][双曲线] imaging 不可用，改用反相蒙版方式');
+        }
+
+        // 回退：反相白色蒙版
+        // 先确保蒙版被选中
+        await batchPlay(
+          [
+            {
+              _obj: 'invert',
+              _target: [{ _ref: 'channel', _property: 'mask' }],
+              _isCommand: false,
+            },
+          ],
+          { synchronousExecution: true }
+        );
+      }
+
+      async function group(ids, name) {
+        await batchPlay(
+          [{ _obj: 'select', _target: [{ _ref: 'layer', _id: ids[0] }], makeVisible: false }],
+          { synchronousExecution: true }
+        );
+        for (let i = 1; i < ids.length; i++) {
+          await batchPlay(
+            [
+              {
+                _obj: 'select',
+                _target: [{ _ref: 'layer', _id: ids[i] }],
+                selectionModifier: { _enum: 'addToSelectionContinuous', _value: 'addToSelection' },
+                makeVisible: false,
               },
-              name: '压暗 (Burn)',
+            ],
+            { synchronousExecution: true }
+          );
+        }
+        await batchPlay(
+          [
+            {
+              _obj: 'make',
+              _target: [{ _ref: 'layerSection' }],
+              from: { _ref: 'layer' },
+              layerSectionStart: { _obj: 'layerSection', name: name, sectionStart: true },
             },
-          },
-        ],
-        { synchronousExecution: false }
-      );
-      const burnLayer = doc.activeLayer;
-      burnLayerId = burnLayer.id;
-      console.log('[CosAI Toolbox] 压暗层已创建 id=' + burnLayerId);
+          ],
+          { synchronousExecution: true }
+        );
+        return doc.activeLayer.id;
+      }
+
+      // === 执行步骤 ===
+
+      // 1. 提亮曲线层
+      console.log('[Toolbox][双曲线] 创建提亮层...');
+      const dodgeLayer = await createCurves('提亮 (Dodge)', makePoints(dodgeAmount, true));
+      const dodgeId = dodgeLayer.id;
+      console.log('[Toolbox][双曲线] 提亮层 id=' + dodgeId);
+
+      // 2. 提亮层蒙版填充黑色
+      console.log('[Toolbox][双曲线] 填充提亮层蒙版（黑）...');
+      await fillMaskBlack(dodgeId);
+
+      // 3. 压暗曲线层
+      console.log('[Toolbox][双曲线] 创建压暗层...');
+      const burnLayer = await createCurves('压暗 (Burn)', makePoints(burnAmount, false));
+      const burnId = burnLayer.id;
+      console.log('[Toolbox][双曲线] 压暗层 id=' + burnId);
 
       // 4. 压暗层蒙版填充黑色
-      console.log('[CosAI Toolbox] 反相压暗层蒙版...');
-      await batchPlay(
-        [
-          {
-            _obj: 'invert',
-            _target: [{ _ref: 'channel', _property: 'mask' }],
-            _isCommand: false,
-          },
-        ],
-        { synchronousExecution: false }
-      );
+      console.log('[Toolbox][双曲线] 填充压暗层蒙版（黑）...');
+      await fillMaskBlack(burnId);
 
-      // 5. 把两个曲线图层放进一个组
-      console.log('[CosAI Toolbox] 创建双曲线组...');
-      // 先选中两个图层（压暗层是当前活动层，再加选提亮层）
-      await batchPlay(
-        [
-          {
-            _obj: 'select',
-            _target: [{ _ref: 'layer', _id: dodgeLayerId }],
-            selectionModifier: { _enum: 'addToSelectionContinuous', _value: 'addToSelection' },
-            makeVisible: false,
-          },
-        ],
-        { synchronousExecution: false }
-      );
-
-      const groupResult = await batchPlay(
-        [
-          {
-            _obj: 'make',
-            _target: [{ _ref: 'layerSection' }],
-            from: { _ref: 'layer' },
-            layerSectionStart: {
-              _obj: 'layerSection',
-              name: '双曲线',
-              sectionStart: true,
-            },
-          },
-        ],
-        { synchronousExecution: false }
-      );
-      groupId = doc.activeLayer.id;
-      console.log('[CosAI Toolbox] 双曲线组已创建 id=' + groupId);
+      // 5. 编组
+      console.log('[Toolbox][双曲线] 创建双曲线组...');
+      const groupId = await group([burnId, dodgeId], '双曲线');
+      console.log('[Toolbox][双曲线] 组 id=' + groupId);
 
       return {
         success: true,
-        dodgeLayerId: dodgeLayerId,
-        burnLayerId: burnLayerId,
+        dodgeLayerId: dodgeId,
+        burnLayerId: burnId,
         groupId: groupId,
       };
     }, { commandName: '双曲线修图' });
 
-    console.log('[CosAI Toolbox] dodgeBurnCurves done');
+    console.log('[Toolbox][双曲线] done');
     return result;
   },
 
   /**
-   * 辉光效果（Orton Effect / Glow）
-   * - 复制当前图层
-   * - 高斯模糊
-   * - 混合模式设为滤色（Screen）
-   * - 降低不透明度
+   * 辉光效果（Glow / Orton Effect 基础版）
+   * 参考 HHPS 风格
+   *
+   * 步骤：
+   * 1. 复制当前图层 → 辉光层
+   * 2. 高斯模糊
+   * 3. 设置混合模式 + 不透明度
+   *
    * @param {Object} options
    * @param {number} options.radius    - 高斯模糊半径，默认 20
-   * @param {number} options.opacity   - 不透明度 (0-100)，默认 50
-   * @param {string} options.blendMode - 混合模式，默认 'screen'（滤色），可选 'softLight'（柔光）等
+   * @param {number} options.opacity   - 不透明度 0-100，默认 50
+   * @param {string} options.blendMode - 混合模式：screen/softLight/overlay 等
    */
   async glowEffect(options = {}) {
-    const radius = (options && options.radius != null) ? options.radius : 20;
-    const opacity = (options && options.opacity != null) ? options.opacity : 50;
-    const blendMode = (options && options.blendMode) ? options.blendMode.toUpperCase() : 'SCREEN';
-    console.log('[CosAI Toolbox] glowEffect start, radius=' + radius + ' opacity=' + opacity + ' mode=' + blendMode);
+    const radius = (options && options.radius != null) ? Number(options.radius) : 20;
+    const opacity = (options && options.opacity != null) ? Number(options.opacity) : 50;
+    const blendMode = (options && options.blendMode) ? String(options.blendMode).toLowerCase() : 'screen';
+    console.log('[Toolbox][辉光] start, radius=' + radius + ' opacity=' + opacity + ' mode=' + blendMode);
+
+    // 混合模式映射
+    const modeMap = {
+      screen: 'screen',
+      softlight: 'softLight',
+      overlay: 'overlay',
+      linearlight: 'linearLight',
+      colordodge: 'colorDodge',
+      lighten: 'lighten',
+      normal: 'normal',
+    };
+    const modeValue = modeMap[blendMode] || 'screen';
 
     const result = await core.executeAsModal(async () => {
       const doc = app.activeDocument;
       if (!doc) throw new Error('没有打开的文档');
-      console.log('[CosAI Toolbox] doc: ' + doc.title);
 
-      const activeLayer = getSourceLayer(doc);
-      if (!activeLayer) throw new Error('没有可处理的图层');
-      console.log('[CosAI Toolbox] sourceLayer: ' + activeLayer.name + ' id=' + activeLayer.id + ' kind=' + activeLayer.kind);
+      const sourceLayer = getSourceLayer(doc);
+      if (!sourceLayer) throw new Error('没有可处理的图层');
+      const sourceId = sourceLayer.id;
+      console.log('[Toolbox][辉光] source=' + sourceLayer.name + ' id=' + sourceId);
 
-      const constants = require('photoshop').constants.BlendMode;
+      // === 辅助函数 ===
+      async function sel(id) {
+        await batchPlay(
+          [{ _obj: 'select', _target: [{ _ref: 'layer', _id: id }], makeVisible: false }],
+          { synchronousExecution: true }
+        );
+      }
 
-      // 1. 复制当前图层
-      console.log('[CosAI Toolbox] 复制辉光层...');
-      const glowLayer = await activeLayer.duplicate();
-      if (!glowLayer) throw new Error('复制图层失败');
-      glowLayer.name = '辉光';
-      const glowLayerId = glowLayer.id;
-      console.log('[CosAI Toolbox] 辉光层已创建 id=' + glowLayerId);
+      async function dup(name) {
+        const src = doc.activeLayer;
+        const newLayer = await src.duplicate();
+        if (name) newLayer.name = name;
+        return newLayer;
+      }
 
-      // 2. 高斯模糊
-      console.log('[CosAI Toolbox] 高斯模糊（辉光）...');
-      await batchPlay(
-        [
-          {
-            _obj: 'gaussianBlur',
-            radius: { _unit: 'pixelsUnit', _value: radius },
-            _target: [{ _ref: 'layer', _id: glowLayerId }],
-          },
-        ],
-        { synchronousExecution: false }
-      );
-      console.log('[CosAI Toolbox] 高斯模糊完成');
+      async function gauss(id, r) {
+        await sel(id);
+        const r2 = await batchPlay(
+          [{ _obj: 'gaussianBlur', radius: { _unit: 'pixelsUnit', _value: r } }],
+          { synchronousExecution: true }
+        );
+        if (r2 && r2[0] && r2[0]._obj === 'error') {
+          throw new Error(r2[0].message || '高斯模糊失败');
+        }
+      }
 
-      // 3. 设置混合模式
-      const modeKey = blendMode;
-      glowLayer.blendMode = constants[modeKey] || constants.SCREEN;
-      console.log('[CosAI Toolbox] 混合模式已设为 ' + (constants[modeKey] ? modeKey : 'SCREEN'));
+      async function setMode(id, mode) {
+        const r = await batchPlay(
+          [
+            {
+              _obj: 'set',
+              _target: [{ _ref: 'layer', _id: id }],
+              to: { _obj: 'layer', mode: { _enum: 'blendMode', _value: mode } },
+            },
+          ],
+          { synchronousExecution: true }
+        );
+        if (r && r[0] && r[0]._obj === 'error') {
+          throw new Error(r[0].message || '设置混合模式失败');
+        }
+      }
 
-      // 4. 设置不透明度
-      glowLayer.opacity = opacity;
-      console.log('[CosAI Toolbox] 不透明度已设为 ' + opacity);
+      async function setOpacity(id, op) {
+        const r = await batchPlay(
+          [
+            {
+              _obj: 'set',
+              _target: [{ _ref: 'layer', _id: id }],
+              to: { _obj: 'layer', opacity: { _unit: 'percentUnit', _value: op } },
+            },
+          ],
+          { synchronousExecution: true }
+        );
+        if (r && r[0] && r[0]._obj === 'error') {
+          throw new Error(r[0].message || '设置不透明度失败');
+        }
+      }
+
+      // === 执行步骤 ===
+      console.log('[Toolbox][辉光] 复制辉光层...');
+      await sel(sourceId);
+      const glowLayer = await dup('辉光');
+      const glowId = glowLayer.id;
+      console.log('[Toolbox][辉光] 辉光层 id=' + glowId);
+
+      console.log('[Toolbox][辉光] 高斯模糊...');
+      await gauss(glowId, radius);
+      console.log('[Toolbox][辉光] 高斯模糊完成');
+
+      console.log('[Toolbox][辉光] 设置混合模式: ' + modeValue);
+      await setMode(glowId, modeValue);
+
+      console.log('[Toolbox][辉光] 设置不透明度: ' + opacity);
+      await setOpacity(glowId, opacity);
 
       return {
         success: true,
-        glowLayerId: glowLayerId,
+        glowLayerId: glowId,
         radius: radius,
         opacity: opacity,
         blendMode: blendMode,
       };
     }, { commandName: '辉光效果' });
 
-    console.log('[CosAI Toolbox] glowEffect done');
+    console.log('[Toolbox][辉光] done');
     return result;
   },
 };
