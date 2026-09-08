@@ -395,8 +395,17 @@
     <button class="tb-btn" id="tb-glow">辉光</button>
     <div class="tb-sep"></div>
     <button class="tb-btn" id="tb-getimg" style="background:#0369a1;">获取图片</button>
+    <button class="tb-btn" id="tb-result" style="background:#be185d;">✨返图</button>
     <span class="tb-status" id="tb-status">就绪</span>
   </div>
+
+  <!-- 返图区域面板（右侧浮动） -->
+  <div id="cosai-result-panel-wrap" style="display:none;position:fixed;top:44px;right:4px;bottom:120px;width:260px;z-index:999997;pointer-events:none;">
+    <div id="cosai-result-area" style="pointer-events:auto;"></div>
+  </div>
+
+  <!-- 返图区域组件（HHPS 风格） -->
+  <script src="风月-返图区域/index.js"></script>
 
   <script>
     // ===== 工具箱：按钮绑定 =====
@@ -519,6 +528,163 @@
       setTimeout(tryBind, 500);
       setTimeout(tryBind, 1500);
       setTimeout(tryBind, 3000);
+    })();
+
+    // ===== 返图区域（参考 HHPS 风格）=====
+    (function() {
+      var resultArea = null;
+      var panelVisible = false;
+      var capturedImages = []; // 已捕获的图片 src 列表，避免重复
+
+      function initResultArea() {
+        if (resultArea) return;
+        var container = document.getElementById('cosai-result-area');
+        if (!container || typeof ResultArea === 'undefined') {
+          // ResultArea 类还没加载好，等一下
+          setTimeout(initResultArea, 200);
+          return;
+        }
+
+        resultArea = new ResultArea({
+          container: container,
+          title: '返图区域',
+          icon: '✨',
+          defaultCollapsed: false,
+          onPlace: function(base64, mode) {
+            window.__dbg('[ResultArea] 贴回 mode=' + mode + ' len=' + base64.length);
+            // 调用 PS API 贴回
+            if (mode === 'newLayer') {
+              return callHost('placeLayerFromBase64', { base64: base64, name: 'AI 结果' });
+            } else {
+              // replace 模式：先贴为新图层，用户可以自己调整
+              return callHost('placeLayerFromBase64', { base64: base64, name: 'AI 结果' });
+            }
+          },
+          onDownload: function(base64, filename) {
+            // 用 UXP 文件系统保存，或者直接下载
+            var a = document.createElement('a');
+            a.href = base64;
+            a.download = filename;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+          },
+        });
+
+        window.__dbg('[ResultArea] 初始化完成');
+      }
+
+      function togglePanel() {
+        var wrap = document.getElementById('cosai-result-panel-wrap');
+        if (!wrap) return;
+
+        panelVisible = !panelVisible;
+        wrap.style.display = panelVisible ? 'block' : 'none';
+
+        var btn = document.getElementById('tb-result');
+        if (btn) {
+          btn.style.opacity = panelVisible ? '1' : '0.7';
+        }
+
+        if (panelVisible && !resultArea) {
+          initResultArea();
+        }
+
+        window.__dbg('[ResultArea] ' + (panelVisible ? '显示' : '隐藏'));
+      }
+
+      // 监听 React 应用的结果面板，自动捕获图片
+      function observeResultPanel() {
+        var observer = new MutationObserver(function(mutations) {
+          if (!resultArea) return;
+
+          // 找结果面板里的图片
+          var resultPanel = document.querySelector('.cosai-result-panel__preview-inner img');
+          if (resultPanel && resultPanel.src && resultPanel.src.startsWith('data:')) {
+            var src = resultPanel.src;
+            // 检查是否已经捕获过
+            if (capturedImages.indexOf(src) === -1) {
+              // 只有在面板打开时才捕获
+              var panel = document.querySelector('.cosai-result-panel');
+              if (panel && panel.offsetParent !== null) {
+                capturedImages.push(src);
+                if (capturedImages.length > 50) capturedImages.shift();
+
+                // 找来源信息
+                var source = 'AI 生成';
+                var titleEl = document.querySelector('.cosai-result-panel__title');
+                if (titleEl && titleEl.textContent) {
+                  source = titleEl.textContent.trim();
+                }
+
+                resultArea.addResult({
+                  base64: src,
+                  source: source,
+                });
+                window.__dbg('[ResultArea] 捕获新结果图: ' + source);
+              }
+            }
+          }
+        });
+
+        observer.observe(document.body, {
+          childList: true,
+          subtree: true,
+          attributes: true,
+          attributeFilter: ['src'],
+        });
+
+        window.__dbg('[ResultArea] DOM 监听已启动');
+      }
+
+      // 绑定返图按钮
+      function bindResultBtn() {
+        var btn = document.getElementById('tb-result');
+        if (btn && !btn.__bound) {
+          btn.__bound = true;
+          btn.addEventListener('click', function() {
+            if (!resultArea) initResultArea();
+            togglePanel();
+          });
+        }
+      }
+
+      // 初始化
+      function tryInit() {
+        bindResultBtn();
+        // 延迟启动 DOM 监听（等 React 渲染完）
+        if (!window.__resultObserverStarted) {
+          window.__resultObserverStarted = true;
+          setTimeout(observeResultPanel, 3000);
+        }
+      }
+
+      if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', tryInit);
+      } else {
+        tryInit();
+      }
+      setTimeout(tryInit, 500);
+      setTimeout(tryInit, 1500);
+
+      // 暴露全局 API，方便调试
+      window.__resultArea = {
+        show: function() { if (!panelVisible) togglePanel(); },
+        hide: function() { if (panelVisible) togglePanel(); },
+        addResult: function(opts) {
+          if (!resultArea) initResultArea();
+          if (!panelVisible) togglePanel();
+          return resultArea.addResult(opts);
+        },
+        setBefore: function(b64) {
+          if (resultArea) resultArea.setBeforeImage(b64);
+        },
+        clear: function() {
+          if (resultArea) resultArea.clear();
+          capturedImages = [];
+        },
+        getArea: function() { return resultArea; },
+      };
     })();
   </script>
 
