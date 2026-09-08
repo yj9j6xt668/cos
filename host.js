@@ -1185,87 +1185,189 @@ function getSourceLayer(doc) {
 const ToolboxAPI = {
   /**
    * 高低频分离（Frequency Separation）
-   * - 复制当前图层两份
-   * - 低频层：高斯模糊（保留光影/颜色）
-   * - 高频层：应用图像（减去低频，保留纹理）+ 线性光混合模式
+   * 参考 HHPS 实现
+   *
+   * 步骤：
+   * 1. 复制源图层 → 低频层 → 高斯模糊
+   * 2. 复制源图层 → 高频层 → 应用图像(减去低频层, 缩放=2, 补偿=128)
+   * 3. 高频层混合模式：线性光
+   * 4. 高低频编组
+   *
    * @param {Object} options
    * @param {number} options.radius - 高斯模糊半径（像素），默认 8
    */
   async frequencySeparation(options = {}) {
-    const radius = (options && options.radius) ? options.radius : 8;
-    console.log('[CosAI Toolbox] frequencySeparation start, radius=' + radius);
+    const radius = (options && options.radius != null) ? Number(options.radius) : 8;
+    console.log('[Toolbox][高低频] start, radius=' + radius);
 
-    const result = await core.executeAsModal(async (executionContext) => {
-      // 在 modal 上下文内获取文档和图层（确保引用有效）
+    const result = await core.executeAsModal(async () => {
       const doc = app.activeDocument;
       if (!doc) throw new Error('没有打开的文档');
-      console.log('[CosAI Toolbox] doc: ' + doc.title);
 
+      // 检测位深
+      const bitsVal = doc.bitsPerChannel?.value;
+      const bitsPerChannel = bitsVal === 16 ? 16 : 8;
+      if (bitsVal === 32) {
+        throw new Error('32 位文档暂不支持，请先转换为 8 位或 16 位');
+      }
+      console.log('[Toolbox][高低频] bits=' + bitsPerChannel);
+
+      // 获取源图层
       const sourceLayer = getSourceLayer(doc);
       if (!sourceLayer) throw new Error('没有可处理的图层');
-      console.log('[CosAI Toolbox] sourceLayer: ' + sourceLayer.name + ' id=' + sourceLayer.id + ' kind=' + sourceLayer.kind);
+      const sourceId = sourceLayer.id;
+      console.log('[Toolbox][高低频] source=' + sourceLayer.name + ' id=' + sourceId);
 
-      // 1. 创建低频层（复制 + 高斯模糊）
-      console.log('[CosAI Toolbox] 复制低频层...');
-      const lowFreq = await sourceLayer.duplicate();
-      if (!lowFreq) throw new Error('复制图层失败（低频）');
-      lowFreq.name = '低频';
-      console.log('[CosAI Toolbox] 低频层已创建, id=' + lowFreq.id);
+      // === 辅助函数（modal 内）===
+      async function sel(id) {
+        await batchPlay(
+          [{ _obj: 'select', _target: [{ _ref: 'layer', _id: id }], makeVisible: false }],
+          { synchronousExecution: true }
+        );
+      }
 
-      console.log('[CosAI Toolbox] 高斯模糊（低频）...');
-      const gaussResult = await batchPlay(
-        [
-          {
-            _obj: 'gaussianBlur',
-            radius: { _unit: 'pixelsUnit', _value: radius },
-            _target: [{ _ref: 'layer', _id: lowFreq.id }],
-          },
-        ],
-        { synchronousExecution: false }
-      );
-      console.log('[CosAI Toolbox] 高斯模糊完成');
+      async function dup(name) {
+        // 必须先选中源图层再复制
+        const src = doc.activeLayer;
+        const newLayer = await src.duplicate();
+        if (name) newLayer.name = name;
+        return newLayer;
+      }
 
-      // 2. 创建高频层（复制原图，在上面）
-      console.log('[CosAI Toolbox] 复制高频层...');
-      const highFreq = await sourceLayer.duplicate();
-      if (!highFreq) throw new Error('复制图层失败（高频）');
-      highFreq.name = '高频';
-      console.log('[CosAI Toolbox] 高频层已创建, id=' + highFreq.id);
+      async function gauss(id, r) {
+        await sel(id);
+        const r2 = await batchPlay(
+          [{ _obj: 'gaussianBlur', radius: { _unit: 'pixelsUnit', _value: r } }],
+          { synchronousExecution: true }
+        );
+        if (r2 && r2[0] && r2[0]._obj === 'error') {
+          throw new Error(r2[0].message || '高斯模糊失败');
+        }
+      }
 
-      // 3. 高频层：应用图像（减去低频层）
-      // 应用图像：源=当前文档, 图层=低频, 混合=减去, 缩放=2, 补偿值=128
-      console.log('[CosAI Toolbox] 应用图像（减去低频）...');
-      const applyResult = await batchPlay(
-        [
-          {
-            _obj: 'applyImageEvent',
-            with: {
-              _obj: 'applyImage',
-              with: { _ref: [{ _ref: 'layer', _name: '低频' }] },
-              channel: { _enum: 'channel', _value: 'RGB' },
-              blending: { _enum: 'blendMode', _value: 'subtract' },
-              opacity: 100,
-              scale: 2,
-              offset: 128,
-              preservingTransparency: false,
-              invert: false,
+      async function applyImageCalc(targetId, sourceId, bits) {
+        await sel(targetId);
+        const r = await batchPlay(
+          [
+            {
+              _obj: 'applyImageEvent',
+              with: {
+                _obj: 'calculation',
+                to: {
+                  _ref: [
+                    { _ref: 'channel', _enum: 'channel', _value: 'RGB' },
+                    { _ref: 'layer', _id: sourceId },
+                  ],
+                },
+                calculation: { _enum: 'calculation', _value: 'subtract' },
+                opacity: { _unit: 'percentUnit', _value: 100 },
+                scale: 2,
+                offset: 128,
+                invert: false,
+                preserveTransparency: false,
+              },
             },
-            _target: [{ _ref: 'layer', _id: highFreq.id }],
-          },
-        ],
-        { synchronousExecution: false }
-      );
-      console.log('[CosAI Toolbox] 应用图像完成');
+          ],
+          { synchronousExecution: true }
+        );
+        if (r && r[0] && r[0]._obj === 'error') {
+          throw new Error(r[0].message || '生成高频纹理失败');
+        }
+      }
 
-      // 4. 高频层混合模式设为线性光（Linear Light）
-      const blendMode = require('photoshop').constants.BlendMode.LINEARLIGHT;
-      highFreq.blendMode = blendMode;
-      console.log('[CosAI Toolbox] 高频层混合模式已设为线性光');
+      async function setMode(id, mode) {
+        const r = await batchPlay(
+          [
+            {
+              _obj: 'set',
+              _target: [{ _ref: 'layer', _id: id }],
+              to: { _obj: 'layer', mode: { _enum: 'blendMode', _value: mode } },
+            },
+          ],
+          { synchronousExecution: true }
+        );
+        if (r && r[0] && r[0]._obj === 'error') {
+          throw new Error(r[0].message || '设置混合模式失败');
+        }
+      }
 
-      return { success: true, radius: radius };
+      async function group(ids, name) {
+        // 选第一个
+        await sel(ids[0]);
+        // 加选其余
+        for (let i = 1; i < ids.length; i++) {
+          await batchPlay(
+            [
+              {
+                _obj: 'select',
+                _target: [{ _ref: 'layer', _id: ids[i] }],
+                selectionModifier: { _enum: 'addToSelectionContinuous', _value: 'addToSelection' },
+                makeVisible: false,
+              },
+            ],
+            { synchronousExecution: true }
+          );
+        }
+        await batchPlay(
+          [
+            {
+              _obj: 'make',
+              _target: [{ _ref: 'layerSection' }],
+              from: { _ref: 'layer' },
+              layerSectionStart: { _obj: 'layerSection', name: name, sectionStart: true },
+            },
+          ],
+          { synchronousExecution: true }
+        );
+        return doc.activeLayer.id;
+      }
+
+      // === 执行步骤 ===
+
+      // 1. 选中源图层，复制低频层
+      console.log('[Toolbox][高低频] 复制低频层...');
+      await sel(sourceId);
+      const lowLayer = await dup('低频');
+      const lowId = lowLayer.id;
+      console.log('[Toolbox][高低频] 低频层 id=' + lowId);
+
+      // 2. 低频层高斯模糊
+      console.log('[Toolbox][高低频] 高斯模糊低频...');
+      await gauss(lowId, radius);
+      console.log('[Toolbox][高低频] 高斯模糊完成');
+
+      // 3. 回到源图层，复制高频层
+      console.log('[Toolbox][高低频] 复制高频层...');
+      await sel(sourceId);
+      const highLayer = await dup('高频');
+      const highId = highLayer.id;
+      console.log('[Toolbox][高低频] 高频层 id=' + highId);
+
+      // 4. 应用图像：高频层 = 高频层 - 低频层（缩放2，补偿128）
+      console.log('[Toolbox][高低频] 应用图像生成高频纹理...');
+      await applyImageCalc(highId, lowId, bitsPerChannel);
+      console.log('[Toolbox][高低频] 应用图像完成');
+
+      // 5. 高频层混合模式 = 线性光
+      console.log('[Toolbox][高低频] 设置线性光混合模式...');
+      await setMode(highId, 'linearLight');
+
+      // 6. 编组
+      console.log('[Toolbox][高低频] 创建高低频组...');
+      const groupId = await group([highId, lowId], '高低频');
+      console.log('[Toolbox][高低频] 组 id=' + groupId);
+
+      return {
+        success: true,
+        lowLayerId: lowId,
+        highLayerId: highId,
+        groupId: groupId,
+        radius: radius,
+        bitsPerChannel: bitsPerChannel,
+      };
     }, { commandName: '高低频分离' });
 
-    console.log('[CosAI Toolbox] frequencySeparation done');
+    console.log('[Toolbox][高低频] done');
     return result;
   },
 
