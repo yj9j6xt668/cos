@@ -240,6 +240,92 @@
         getHistoryStates: function () { return callHost('getHistoryStates'); },
       };
 
+      // ===== React 通信桥接 =====
+      // React 用 cosai-webview-message / cosai-host-message 自定义事件通信
+      // 但 webview → panel 的 CustomEvent 通道不可靠，所以转成 uxpHost.postMessage
+      // 同时把 uxpHost 的响应转成 cosai-host-message 事件回传给 React
+      (function bridgeReact() {
+        var reactReqMap = {}; // requestId -> 原始请求信息
+        var bridged = false;
+
+        function installBridge() {
+          if (bridged) return;
+          bridged = true;
+
+          // 拦截 React 发出的 cosai-webview-message 事件
+          window.addEventListener('cosai-webview-message', function (e) {
+            var detail = e.detail || {};
+            var type = detail.type;       // 方法名
+            var data = detail.data;       // 参数
+            var requestId = detail.requestId; // 请求ID
+
+            if (!type || !requestId) return;
+
+            window.__dbg('[BRIDGE] React→Host: ' + type + ' reqId=' + requestId);
+
+            // 方法名映射（如果需要的话）
+            var methodMap = {
+              'getCanvasAsBase64': 'exportAsBase64',
+              'getSelectionAsBase64': 'exportAsBase64', // 需要单独处理选区
+              'dodgeBurnLayers': 'dodgeBurnCurves',
+            };
+            var hostMethod = methodMap[type] || type;
+
+            // 特殊处理：getCanvasAsBase64 格式参数
+            var hostData = data || {};
+            if (type === 'getCanvasAsBase64' && data && data.format) {
+              hostData = { format: data.format, source: 'merged' };
+            }
+
+            reactReqMap[requestId] = { type: type, requestId: requestId };
+
+            callHost(hostMethod, hostData)
+              .then(function (result) {
+                window.__dbg('[BRIDGE] Host→React OK: ' + type + ' reqId=' + requestId);
+                // 结果转换
+                var respData = result;
+                if (type === 'getCanvasAsBase64' && result && result.base64) {
+                  respData = { base64: result.base64 };
+                }
+                dispatchHostMessage('response', {
+                  requestId: requestId,
+                  success: true,
+                  data: respData,
+                });
+                delete reactReqMap[requestId];
+              })
+              .catch(function (err) {
+                window.__dbg('[BRIDGE] Host→React ERR: ' + type + ' ' + err.message);
+                dispatchHostMessage('response', {
+                  requestId: requestId,
+                  success: false,
+                  error: err.message || '操作失败',
+                });
+                delete reactReqMap[requestId];
+              });
+          }, true); // capture 阶段拦截，确保最先收到
+
+          window.__dbg('[BRIDGE] React 通信桥已安装');
+        }
+
+        function dispatchHostMessage(type, data) {
+          var evt = new CustomEvent('cosai-host-message', {
+            detail: { type: type, data: data },
+          });
+          window.dispatchEvent(evt);
+        }
+
+        // 立即安装（等 DOM 就绪）
+        if (document.readyState === 'loading') {
+          document.addEventListener('DOMContentLoaded', installBridge);
+        } else {
+          installBridge();
+        }
+        // 延迟再尝试一次，确保 React 加载后也能拦截到
+        setTimeout(installBridge, 100);
+        setTimeout(installBridge, 500);
+      })();
+
       function findLayerByName(layers, name) {
         if (!layers || !layers.length) return null;
         for (var i = 0; i < layers.length; i++) {
