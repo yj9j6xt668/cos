@@ -15,8 +15,73 @@
       padding: 4px 6px; max-height: 110px; overflow: auto;
       white-space: pre-wrap; word-break: break-all;
       border-top: 1px solid #334155;
-      pointer-events: none;
+      pointer-events: auto;
+      transition: max-height .2s ease, padding .2s ease;
     }
+    #cosai-dbg.collapsed {
+      max-height: 20px;
+      padding: 2px 6px;
+      overflow: hidden;
+      opacity: 0.7;
+    }
+    #cosai-dbg-toggle {
+      position: absolute; top: 2px; right: 6px;
+      background: #334155; color: #94a3b8; border: none;
+      font-size: 9px; padding: 1px 6px; border-radius: 3px;
+      cursor: pointer; z-index: 1;
+    }
+    #cosai-dbg-toggle:hover { background: #475569; color: #fff; }
+    /* AI 测试面板 */
+    #cosai-ai-test-panel {
+      position: fixed; top: 44px; left: 4px; right: 4px;
+      background: rgba(15,15,30,.98); border: 1px solid #4c1d95;
+      border-radius: 8px; padding: 12px; z-index: 999997;
+      font: 11px/1.4 -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      color: #e2e8f0; backdrop-filter: blur(10px);
+      display: none;
+    }
+    #cosai-ai-test-panel h3 {
+      margin: 0 0 8px 0; color: #a78bfa; font-size: 13px;
+    }
+    #cosai-ai-test-panel .row {
+      display: flex; gap: 8px; margin-bottom: 8px; align-items: center;
+    }
+    #cosai-ai-test-panel label {
+      min-width: 70px; color: #94a3b8; font-size: 10px;
+    }
+    #cosai-ai-test-panel input, #cosai-ai-test-panel select {
+      flex: 1; background: #1e1e3f; border: 1px solid #334155;
+      color: #e2e8f0; padding: 4px 8px; border-radius: 4px;
+      font-size: 11px;
+    }
+    #cosai-ai-test-panel .btn-row {
+      display: flex; gap: 6px; margin-top: 8px;
+    }
+    #cosai-ai-test-panel .btn {
+      background: #4c1d95; color: #fff; border: none;
+      padding: 5px 12px; border-radius: 4px;
+      font-size: 11px; cursor: pointer;
+    }
+    #cosai-ai-test-panel .btn:hover { background: #6d28d9; }
+    #cosai-ai-test-panel .btn.secondary { background: #334155; }
+    #cosai-ai-test-panel .btn.secondary:hover { background: #475569; }
+    #cosai-ai-test-panel .btn.success { background: #065f46; }
+    #cosai-ai-test-panel .btn.success:hover { background: #047857; }
+    #cosai-ai-test-panel .result-box {
+      margin-top: 8px; padding: 8px; background: #0f0f1e;
+      border: 1px solid #334155; border-radius: 4px;
+      max-height: 150px; overflow: auto;
+      font-family: ui-monospace, Menlo, monospace; font-size: 10px;
+      white-space: pre-wrap; word-break: break-all;
+    }
+    #cosai-ai-test-panel .result-box.success { border-color: #065f46; color: #34d399; }
+    #cosai-ai-test-panel .result-box.error { border-color: #991b1b; color: #f87171; }
+    #cosai-ai-test-panel .close-btn {
+      position: absolute; top: 8px; right: 8px;
+      background: none; border: none; color: #64748b;
+      font-size: 16px; cursor: pointer; line-height: 1;
+    }
+    #cosai-ai-test-panel .close-btn:hover { color: #fff; }
     #cosai-toolbox {
       position: fixed; top: 0; left: 0; right: 0; z-index: 999998;
       background: linear-gradient(180deg, rgba(26,26,46,.98), rgba(26,26,46,.9));
@@ -54,16 +119,56 @@
     // ===== 调试系统（确保 document 未就绪时也能工作）=====
     var __dbgLines = [];
     var __dbgEl = null;
+    var __dbgCollapsed = true; // 默认折叠，不遮挡按钮
+
     function __flushDbg() {
       if (!__dbgEl) {
         var host = document.body || document.documentElement;
         if (!host) return;
         __dbgEl = document.createElement('div');
         __dbgEl.id = 'cosai-dbg';
+        // 加折叠按钮
+        var toggleBtn = document.createElement('button');
+        toggleBtn.id = 'cosai-dbg-toggle';
+        toggleBtn.textContent = '展开';
+        toggleBtn.onclick = function(e) {
+          e.stopPropagation();
+          __toggleDbg();
+        };
+        __dbgEl.appendChild(toggleBtn);
         host.appendChild(__dbgEl);
+        // 应用折叠状态
+        if (__dbgCollapsed) __dbgEl.classList.add('collapsed');
       }
-      __dbgEl.textContent = __dbgLines.slice(0, 40).join('\n');
+      // 日志文本放在按钮后面
+      var logText = __dbgLines.slice(0, 40).join('\n');
+      // 更新文本（保留 toggle 按钮）
+      var toggle = __dbgEl.querySelector('#cosai-dbg-toggle');
+      __dbgEl.textContent = '';
+      if (toggle) __dbgEl.appendChild(toggle);
+      __dbgEl.appendChild(document.createTextNode(logText));
     }
+
+    function __toggleDbg() {
+      __dbgCollapsed = !__dbgCollapsed;
+      if (__dbgEl) {
+        if (__dbgCollapsed) {
+          __dbgEl.classList.add('collapsed');
+        } else {
+          __dbgEl.classList.remove('collapsed');
+        }
+        var btn = __dbgEl.querySelector('#cosai-dbg-toggle');
+        if (btn) btn.textContent = __dbgCollapsed ? '展开' : '收起';
+      }
+      try { localStorage.setItem('cosai_dbg_collapsed', __dbgCollapsed ? '1' : '0'); } catch(e) {}
+    }
+
+    // 恢复折叠状态
+    try {
+      var saved = localStorage.getItem('cosai_dbg_collapsed');
+      if (saved === '0') __dbgCollapsed = false;
+    } catch(e) {}
+
     window.__dbg = function (msg) {
       try {
         var t = new Date().toLocaleTimeString() + '.' + String(new Date().getMilliseconds()).padStart(3, '0');
@@ -396,12 +501,54 @@
     <div class="tb-sep"></div>
     <button class="tb-btn" id="tb-getimg" style="background:#0369a1;">获取图片</button>
     <button class="tb-btn" id="tb-result" style="background:#be185d;">✨返图</button>
+    <div class="tb-sep"></div>
+    <button class="tb-btn" id="tb-aitest" style="background:#047857;">AI测试</button>
+    <button class="tb-btn" id="tb-dbg" style="background:#334155;">日志</button>
     <span class="tb-status" id="tb-status">就绪</span>
   </div>
 
   <!-- 返图区域面板（右侧浮动） -->
   <div id="cosai-result-panel-wrap" style="display:none;position:fixed;top:44px;right:4px;bottom:120px;width:260px;z-index:999997;pointer-events:none;">
     <div id="cosai-result-area" style="pointer-events:auto;"></div>
+  </div>
+
+  <!-- AI 连通性测试面板 -->
+  <div id="cosai-ai-test-panel">
+    <button class="close-btn" id="aitest-close">&times;</button>
+    <h3>🔬 AI API 连通性测试</h3>
+    <div class="row">
+      <label>提供商</label>
+      <select id="aitest-provider">
+        <option value="gemini">Gemini（原生格式）</option>
+        <option value="openai">OpenAI 兼容格式</option>
+      </select>
+    </div>
+    <div class="row">
+      <label>Base URL</label>
+      <input type="text" id="aitest-baseurl" placeholder="https://generativelanguage.googleapis.com/v1beta" />
+    </div>
+    <div class="row">
+      <label>API Key</label>
+      <input type="password" id="aitest-apikey" placeholder="输入 API Key" />
+    </div>
+    <div class="row">
+      <label>模型</label>
+      <input type="text" id="aitest-model" value="gemini-2.0-flash" />
+    </div>
+    <div class="row">
+      <label>测试类型</label>
+      <select id="aitest-type">
+        <option value="models">列模型列表（简单连通）</option>
+        <option value="chat">文字对话</option>
+        <option value="vision">图像理解（需要图片）</option>
+      </select>
+    </div>
+    <div class="btn-row">
+      <button class="btn success" id="aitest-run">▶ 开始测试</button>
+      <button class="btn secondary" id="aitest-save">💾 保存配置</button>
+      <button class="btn secondary" id="aitest-load">📂 读取配置</button>
+    </div>
+    <div class="result-box" id="aitest-result">等待测试...</div>
   </div>
 
   <!-- 返图区域组件（HHPS 风格） -->
@@ -518,6 +665,8 @@
       // 页面加载后绑定，并持续重试（等 React 渲染完成后 DOM 稳定）
       function tryBind() {
         bindToolbox();
+        bindAiTestPanel();
+        bindDbgToggle();
       }
       if (document.readyState === 'loading') {
         document.addEventListener('DOMContentLoaded', tryBind);
@@ -528,6 +677,434 @@
       setTimeout(tryBind, 500);
       setTimeout(tryBind, 1500);
       setTimeout(tryBind, 3000);
+
+      // ===== 日志开关按钮 =====
+      function bindDbgToggle() {
+        var btn = document.getElementById('tb-dbg');
+        if (btn && !btn.__bound) {
+          btn.__bound = true;
+          btn.addEventListener('click', function() {
+            __toggleDbg();
+            btn.textContent = __dbgCollapsed ? '📋日志' : '✅日志';
+            btn.style.background = __dbgCollapsed ? '#334155' : '#4c1d95';
+          });
+          // 初始化按钮文本
+          btn.textContent = __dbgCollapsed ? '📋日志' : '✅日志';
+          btn.style.background = __dbgCollapsed ? '#334155' : '#4c1d95';
+        }
+      }
+
+      // ===== AI 连通性测试面板 =====
+      function bindAiTestPanel() {
+        var panel = document.getElementById('cosai-ai-test-panel');
+        var btn = document.getElementById('tb-aitest');
+        if (!panel || !btn || btn.__bound) return;
+        btn.__bound = true;
+
+        // 切换面板显示
+        btn.addEventListener('click', function() {
+          var isVisible = panel.style.display === 'block';
+          panel.style.display = isVisible ? 'none' : 'block';
+          btn.style.background = isVisible ? '#047857' : '#065f46';
+          if (!isVisible) {
+            // 打开时尝试读取已保存的配置
+            loadAiConfig();
+          }
+        });
+
+        // 关闭按钮
+        var closeBtn = document.getElementById('aitest-close');
+        if (closeBtn) {
+          closeBtn.addEventListener('click', function() {
+            panel.style.display = 'none';
+            btn.style.background = '#047857';
+          });
+        }
+
+        // 提供商切换时更新默认值
+        var providerSel = document.getElementById('aitest-provider');
+        if (providerSel) {
+          providerSel.addEventListener('change', function() {
+            var baseUrl = document.getElementById('aitest-baseurl');
+            var model = document.getElementById('aitest-model');
+            if (providerSel.value === 'gemini') {
+              baseUrl.placeholder = 'https://generativelanguage.googleapis.com/v1beta';
+              model.value = 'gemini-2.0-flash';
+            } else {
+              baseUrl.placeholder = 'https://api.openai.com/v1';
+              model.value = 'gpt-4o-mini';
+            }
+          });
+        }
+
+        // 保存配置
+        var saveBtn = document.getElementById('aitest-save');
+        if (saveBtn) {
+          saveBtn.addEventListener('click', saveAiConfig);
+        }
+
+        // 读取配置
+        var loadBtn = document.getElementById('aitest-load');
+        if (loadBtn) {
+          loadBtn.addEventListener('click', loadAiConfig);
+        }
+
+        // 运行测试
+        var runBtn = document.getElementById('aitest-run');
+        if (runBtn) {
+          runBtn.addEventListener('click', runAiTest);
+        }
+      }
+
+      function saveAiConfig() {
+        try {
+          var config = {
+            provider: document.getElementById('aitest-provider').value,
+            baseUrl: document.getElementById('aitest-baseurl').value,
+            apiKey: document.getElementById('aitest-apikey').value,
+            model: document.getElementById('aitest-model').value,
+          };
+          localStorage.setItem('cosai_ai_test_config', JSON.stringify(config));
+          setAiResult('配置已保存到 localStorage', 'success');
+          window.__dbg('[AI Test] 配置已保存');
+        } catch(e) {
+          setAiResult('保存失败: ' + e.message, 'error');
+        }
+      }
+
+      function loadAiConfig() {
+        try {
+          var saved = localStorage.getItem('cosai_ai_test_config');
+          if (saved) {
+            var config = JSON.parse(saved);
+            if (config.provider) document.getElementById('aitest-provider').value = config.provider;
+            if (config.baseUrl) document.getElementById('aitest-baseurl').value = config.baseUrl;
+            if (config.apiKey) document.getElementById('aitest-apikey').value = config.apiKey;
+            if (config.model) document.getElementById('aitest-model').value = config.model;
+            setAiResult('已读取保存的配置', 'success');
+            window.__dbg('[AI Test] 配置已读取');
+          } else {
+            // 没保存过就设默认值
+            var baseUrlEl = document.getElementById('aitest-baseurl');
+            if (!baseUrlEl.value) {
+              var provider = document.getElementById('aitest-provider').value;
+              if (provider === 'gemini') {
+                baseUrlEl.value = 'https://generativelanguage.googleapis.com/v1beta';
+              }
+            }
+          }
+        } catch(e) {
+          setAiResult('读取失败: ' + e.message, 'error');
+        }
+      }
+
+      function setAiResult(text, type) {
+        var box = document.getElementById('aitest-result');
+        if (box) {
+          box.textContent = text;
+          box.className = 'result-box ' + (type || '');
+        }
+      }
+
+      async function runAiTest() {
+        var provider = document.getElementById('aitest-provider').value;
+        var baseUrl = document.getElementById('aitest-baseurl').value.trim();
+        var apiKey = document.getElementById('aitest-apikey').value.trim();
+        var model = document.getElementById('aitest-model').value.trim();
+        var testType = document.getElementById('aitest-type').value;
+
+        if (!baseUrl) {
+          setAiResult('❌ 请填写 Base URL', 'error');
+          return;
+        }
+        if (!apiKey) {
+          setAiResult('❌ 请填写 API Key', 'error');
+          return;
+        }
+
+        setAiResult('⏳ 正在测试，请稍候...', '');
+        window.__dbg('[AI Test] 开始测试: provider=' + provider + ' type=' + testType);
+
+        var startTime = Date.now();
+
+        try {
+          var result;
+
+          if (provider === 'gemini') {
+            result = await testGemini(baseUrl, apiKey, model, testType);
+          } else {
+            result = await testOpenAI(baseUrl, apiKey, model, testType);
+          }
+
+          var elapsed = Date.now() - startTime;
+
+          if (result.success) {
+            var msg = '✅ 测试成功！耗时 ' + elapsed + 'ms\n\n' + result.detail;
+            setAiResult(msg, 'success');
+            window.__dbg('[AI Test] 成功，耗时 ' + elapsed + 'ms');
+          } else {
+            var errMsg = '❌ 测试失败\n\n' +
+              '错误: ' + result.error + '\n' +
+              '状态码: ' + (result.status || 'N/A') + '\n' +
+              '耗时: ' + elapsed + 'ms\n\n' +
+              '排查建议:\n' +
+              (result.status === 401 ? '• API Key 无效或过期\n' : '') +
+              (result.status === 403 ? '• API Key 被禁用或区域不支持\n' : '') +
+              (result.status === 404 ? '• Base URL 或模型名错误\n' : '') +
+              (result.status === 429 ? '• 请求太频繁，配额超限\n' : '') +
+              (!result.status ? '• 网络连接失败，请检查代理/VPN\n' : '') +
+              (result.status && result.status >= 500 ? '• 服务端错误，稍后重试\n' : '') +
+              '\n原始响应:\n' + (result.raw || '');
+            setAiResult(errMsg, 'error');
+            window.__dbg('[AI Test] 失败: ' + result.error);
+          }
+        } catch(e) {
+          var elapsed2 = Date.now() - startTime;
+          var errMsg2 = '❌ 测试异常\n\n' +
+            '错误: ' + e.message + '\n' +
+            '类型: ' + e.name + '\n' +
+            '耗时: ' + elapsed2 + 'ms\n\n' +
+            '可能原因:\n' +
+            '• 网络不通（检查代理/VPN）\n' +
+            '• Base URL 格式错误\n' +
+            '• CORS 跨域限制\n' +
+            '• UXP 网络权限问题';
+          setAiResult(errMsg2, 'error');
+          window.__dbg('[AI Test] 异常: ' + e.message);
+        }
+      }
+
+      // Gemini 原生格式测试
+      async function testGemini(baseUrl, apiKey, model, testType) {
+        var url = baseUrl.replace(/\/$/, '');
+
+        if (testType === 'models') {
+          // 列模型列表
+          var resp = await fetch(url + '/models?key=' + encodeURIComponent(apiKey));
+          var text = await resp.text();
+          if (!resp.ok) {
+            var errJson = {};
+            try { errJson = JSON.parse(text); } catch(e) {}
+            return {
+              success: false,
+              error: (errJson.error && errJson.error.message) || ('HTTP ' + resp.status),
+              status: resp.status,
+              raw: text.slice(0, 500),
+            };
+          }
+          var data = JSON.parse(text);
+          var models = (data.models || []).map(function(m) { return m.name; }).slice(0, 10).join('\n');
+          return {
+            success: true,
+            detail: '找到 ' + (data.models ? data.models.length : 0) + ' 个模型\n\n前10个:\n' + models,
+          };
+        }
+
+        if (testType === 'chat') {
+          // 文字对话测试
+          var chatUrl = url + '/models/' + model + ':generateContent?key=' + encodeURIComponent(apiKey);
+          var resp = await fetch(chatUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              contents: [{ role: 'user', parts: [{ text: '请用一句话介绍你自己' }] }],
+            }),
+          });
+          var text = await resp.text();
+          if (!resp.ok) {
+            var errJson = {};
+            try { errJson = JSON.parse(text); } catch(e) {}
+            return {
+              success: false,
+              error: (errJson.error && errJson.error.message) || ('HTTP ' + resp.status),
+              status: resp.status,
+              raw: text.slice(0, 500),
+            };
+          }
+          var data = JSON.parse(text);
+          var reply = ((data.candidates && data.candidates[0] && data.candidates[0].content &&
+            data.candidates[0].content.parts && data.candidates[0].content.parts[0] &&
+            data.candidates[0].content.parts[0].text) || '(空响应)');
+          var usage = data.usageMetadata ?
+            '\n用量: prompt=' + data.usageMetadata.promptTokenCount +
+            ', output=' + data.usageMetadata.candidatesTokenCount : '';
+          return {
+            success: true,
+            detail: '模型回复:\n' + reply + usage,
+          };
+        }
+
+        if (testType === 'vision') {
+          // 图像理解测试
+          if (!window.__cosai_ps_api) {
+            return { success: false, error: 'PS API 未就绪，无法获取图片', status: null, raw: '' };
+          }
+          setAiResult('⏳ 正在从 PS 获取图片...', '');
+          var imgResult = await window.__cosai_ps_api.getDocumentPixelsAsBase64();
+          if (!imgResult || !imgResult.base64) {
+            return { success: false, error: '获取图片失败', status: null, raw: '' };
+          }
+          // base64 可能带前缀，去掉
+          var b64 = imgResult.base64;
+          if (b64.indexOf(',') > 0) b64 = b64.split(',')[1];
+
+          setAiResult('⏳ 正在调用图像理解 API...', '');
+
+          var visionUrl = url + '/models/' + model + ':generateContent?key=' + encodeURIComponent(apiKey);
+          var resp = await fetch(visionUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              contents: [{
+                role: 'user',
+                parts: [
+                  { text: '简单描述这张图片的内容' },
+                  { inline_data: { mime_type: 'image/png', data: b64 } },
+                ],
+              }],
+            }),
+          });
+          var text = await resp.text();
+          if (!resp.ok) {
+            var errJson = {};
+            try { errJson = JSON.parse(text); } catch(e) {}
+            return {
+              success: false,
+              error: (errJson.error && errJson.error.message) || ('HTTP ' + resp.status),
+              status: resp.status,
+              raw: text.slice(0, 500),
+            };
+          }
+          var data = JSON.parse(text);
+          var reply = ((data.candidates && data.candidates[0] && data.candidates[0].content &&
+            data.candidates[0].content.parts && data.candidates[0].content.parts[0] &&
+            data.candidates[0].content.parts[0].text) || '(空响应)');
+          return {
+            success: true,
+            detail: '图像理解回复:\n' + reply,
+          };
+        }
+
+        return { success: false, error: '未知测试类型', status: null, raw: '' };
+      }
+
+      // OpenAI 兼容格式测试
+      async function testOpenAI(baseUrl, apiKey, model, testType) {
+        var url = baseUrl.replace(/\/$/, '');
+
+        if (testType === 'models') {
+          var resp = await fetch(url + '/models', {
+            headers: { 'Authorization': 'Bearer ' + apiKey },
+          });
+          var text = await resp.text();
+          if (!resp.ok) {
+            var errJson = {};
+            try { errJson = JSON.parse(text); } catch(e) {}
+            return {
+              success: false,
+              error: (errJson.error && (errJson.error.message || errJson.error)) || ('HTTP ' + resp.status),
+              status: resp.status,
+              raw: text.slice(0, 500),
+            };
+          }
+          var data = JSON.parse(text);
+          var models = (data.data || []).map(function(m) { return m.id; }).slice(0, 10).join('\n');
+          return {
+            success: true,
+            detail: '找到 ' + (data.data ? data.data.length : 0) + ' 个模型\n\n前10个:\n' + models,
+          };
+        }
+
+        if (testType === 'chat') {
+          var chatUrl = url + '/chat/completions';
+          var resp = await fetch(chatUrl, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': 'Bearer ' + apiKey,
+            },
+            body: JSON.stringify({
+              model: model,
+              messages: [{ role: 'user', content: '请用一句话介绍你自己' }],
+              max_tokens: 100,
+            }),
+          });
+          var text = await resp.text();
+          if (!resp.ok) {
+            var errJson = {};
+            try { errJson = JSON.parse(text); } catch(e) {}
+            return {
+              success: false,
+              error: (errJson.error && (errJson.error.message || errJson.error)) || ('HTTP ' + resp.status),
+              status: resp.status,
+              raw: text.slice(0, 500),
+            };
+          }
+          var data = JSON.parse(text);
+          var reply = (data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content) || '(空响应)';
+          var usage = data.usage ?
+            '\n用量: prompt=' + data.usage.prompt_tokens + ', output=' + data.usage.completion_tokens : '';
+          return {
+            success: true,
+            detail: '模型回复:\n' + reply + usage,
+          };
+        }
+
+        if (testType === 'vision') {
+          if (!window.__cosai_ps_api) {
+            return { success: false, error: 'PS API 未就绪，无法获取图片', status: null, raw: '' };
+          }
+          setAiResult('⏳ 正在从 PS 获取图片...', '');
+          var imgResult = await window.__cosai_ps_api.getDocumentPixelsAsBase64();
+          if (!imgResult || !imgResult.base64) {
+            return { success: false, error: '获取图片失败', status: null, raw: '' };
+          }
+          var b64 = imgResult.base64;
+          // 确保有前缀
+          if (!b64.startsWith('data:')) b64 = 'data:image/png;base64,' + b64;
+
+          setAiResult('⏳ 正在调用图像理解 API...', '');
+
+          var visionUrl = url + '/chat/completions';
+          var resp = await fetch(visionUrl, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': 'Bearer ' + apiKey,
+            },
+            body: JSON.stringify({
+              model: model,
+              messages: [{
+                role: 'user',
+                content: [
+                  { type: 'text', text: '简单描述这张图片的内容' },
+                  { type: 'image_url', image_url: { url: b64 } },
+                ],
+              }],
+              max_tokens: 200,
+            }),
+          });
+          var text = await resp.text();
+          if (!resp.ok) {
+            var errJson = {};
+            try { errJson = JSON.parse(text); } catch(e) {}
+            return {
+              success: false,
+              error: (errJson.error && (errJson.error.message || errJson.error)) || ('HTTP ' + resp.status),
+              status: resp.status,
+              raw: text.slice(0, 500),
+            };
+          }
+          var data = JSON.parse(text);
+          var reply = (data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content) || '(空响应)';
+          return {
+            success: true,
+            detail: '图像理解回复:\n' + reply,
+          };
+        }
+
+        return { success: false, error: '未知测试类型', status: null, raw: '' };
+      }
     })();
 
     // ===== 返图区域（参考 HHPS 风格）=====
