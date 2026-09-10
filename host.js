@@ -25,7 +25,7 @@ try {
 }
 
 // 版本标记：每次加载/每次工具箱调用都会打印，便于从日志确认当前运行的是哪份代码
-const COSAI_HOST_VERSION = 'v1.6.0-ai-test-dbg-fold';
+const COSAI_HOST_VERSION = 'v1.6.1-grs-credit';
 
 // ========== 工具函数 ==========
 

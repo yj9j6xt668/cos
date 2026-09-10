@@ -519,8 +519,9 @@
     <div class="row">
       <label>提供商</label>
       <select id="aitest-provider">
+        <option value="grs">GRS（OpenAI 兼容，国内直连）</option>
         <option value="gemini">Gemini（原生格式）</option>
-        <option value="openai">OpenAI 兼容格式</option>
+        <option value="openai">OpenAI 兼容格式（通用）</option>
       </select>
     </div>
     <div class="row">
@@ -538,15 +539,16 @@
     <div class="row">
       <label>测试类型</label>
       <select id="aitest-type">
-        <option value="models">列模型列表（简单连通）</option>
-        <option value="chat">文字对话</option>
+        <option value="chat" selected>文字对话（推荐）</option>
+        <option value="models">列模型列表</option>
         <option value="vision">图像理解（需要图片）</option>
       </select>
     </div>
     <div class="btn-row">
       <button class="btn success" id="aitest-run">▶ 开始测试</button>
-      <button class="btn secondary" id="aitest-save">💾 保存配置</button>
-      <button class="btn secondary" id="aitest-load">📂 读取配置</button>
+      <button class="btn" id="aitest-credit" style="background:#b45309;">💰 查积分</button>
+      <button class="btn secondary" id="aitest-save">💾 保存</button>
+      <button class="btn secondary" id="aitest-load">📂 读取</button>
     </div>
     <div class="result-box" id="aitest-result">等待测试...</div>
   </div>
@@ -727,14 +729,24 @@
           providerSel.addEventListener('change', function() {
             var baseUrl = document.getElementById('aitest-baseurl');
             var model = document.getElementById('aitest-model');
-            if (providerSel.value === 'gemini') {
-              baseUrl.placeholder = 'https://generativelanguage.googleapis.com/v1beta';
+            var val = providerSel.value;
+            if (val === 'grs') {
+              baseUrl.value = 'https://grsai.dakka.com.cn/v1';
+              model.value = 'gemini-3.1-pro';
+            } else if (val === 'gemini') {
+              baseUrl.value = 'https://generativelanguage.googleapis.com/v1beta';
               model.value = 'gemini-2.0-flash';
             } else {
-              baseUrl.placeholder = 'https://api.openai.com/v1';
+              baseUrl.value = 'https://api.openai.com/v1';
               model.value = 'gpt-4o-mini';
             }
           });
+        }
+
+        // 积分查询按钮
+        var creditBtn = document.getElementById('aitest-credit');
+        if (creditBtn) {
+          creditBtn.addEventListener('click', queryCredit);
         }
 
         // 保存配置
@@ -806,6 +818,74 @@
         }
       }
 
+      // ===== 积分查询 =====
+      async function queryCredit() {
+        var apiKey = document.getElementById('aitest-apikey').value.trim();
+        if (!apiKey) {
+          setAiResult('❌ 请先填写 API Key', 'error');
+          return;
+        }
+
+        setAiResult('⏳ 正在查询积分...', '');
+        window.__dbg('[AI Test] 查询积分...');
+
+        try {
+          // 尝试多个 GRS 积分查询地址
+          var queryUrls = [
+            'https://grsapi.xyz/api/query?key=',
+            'https://cx.tpkcur.click/api/query?key=',
+          ];
+
+          var lastErr = null;
+          for (var i = 0; i < queryUrls.length; i++) {
+            try {
+              var resp = await fetch(queryUrls[i] + encodeURIComponent(apiKey));
+              var text = await resp.text();
+              if (resp.ok) {
+                var data;
+                try { data = JSON.parse(text); } catch(e) { data = { raw: text }; }
+                // 尝试解析不同的返回格式
+                var credit = data.balance || data.credit || data.amount || data.total || (data.data && (data.data.balance || data.data.credit));
+                var used = data.used || (data.data && data.data.used);
+                var level = data.level || (data.data && data.data.level);
+                var expire = data.expire || data.expired_at || (data.data && (data.data.expire || data.data.expired_at));
+
+                var msg = '💰 积分查询结果\n\n';
+                if (credit != null) msg += '当前积分: ' + credit + '\n';
+                if (used != null) msg += '已使用: ' + used + '\n';
+                if (level) msg += '等级: ' + level + '\n';
+                if (expire) msg += '到期时间: ' + expire + '\n';
+                if (credit == null && used == null && data.raw) {
+                  msg += '原始数据:\n' + data.raw.slice(0, 500);
+                }
+                setAiResult(msg, credit != null ? 'success' : '');
+                window.__dbg('[AI Test] 积分查询成功: ' + (credit || '未知'));
+                return;
+              } else {
+                lastErr = 'HTTP ' + resp.status + ': ' + text.slice(0, 200);
+              }
+            } catch(e) {
+              lastErr = e.message;
+            }
+          }
+
+          // 所有接口都失败了
+          setAiResult('❌ 积分查询失败\n\n' +
+            '错误: ' + (lastErr || '未知错误') + '\n\n' +
+            '可能原因:\n' +
+            '• 查询服务暂时不可用\n' +
+            '• 网络连接问题\n' +
+            '• API Key 格式错误\n\n' +
+            '你也可以手动访问以下地址查询:\n' +
+            'https://grsapi.xyz/\n' +
+            'https://grsai.com/zh/dashboard/', 'error');
+          window.__dbg('[AI Test] 积分查询失败: ' + lastErr);
+        } catch(e) {
+          setAiResult('❌ 积分查询异常: ' + e.message, 'error');
+          window.__dbg('[AI Test] 积分查询异常: ' + e.message);
+        }
+      }
+
       async function runAiTest() {
         var provider = document.getElementById('aitest-provider').value;
         var baseUrl = document.getElementById('aitest-baseurl').value.trim();
@@ -860,15 +940,21 @@
           }
         } catch(e) {
           var elapsed2 = Date.now() - startTime;
+          var isJsonErr = e.name === 'SyntaxError' || (e.message && e.message.indexOf('JSON') >= 0);
           var errMsg2 = '❌ 测试异常\n\n' +
             '错误: ' + e.message + '\n' +
             '类型: ' + e.name + '\n' +
             '耗时: ' + elapsed2 + 'ms\n\n' +
             '可能原因:\n' +
-            '• 网络不通（检查代理/VPN）\n' +
-            '• Base URL 格式错误\n' +
-            '• CORS 跨域限制\n' +
-            '• UXP 网络权限问题';
+            (isJsonErr ?
+              '• ⚠️ 接口返回的不是 JSON（很可能是 HTML 页面）\n' +
+              '  → 换「文字对话」测试类型试试\n' +
+              '  → 检查 Base URL 是否正确（有没有多写/少写路径）\n' +
+              '  → 该接口可能在此中转站上不存在\n' :
+              '• 网络不通（检查代理/VPN）\n' +
+              '• Base URL 格式错误\n' +
+              '• CORS 跨域限制\n' +
+              '• UXP 网络权限问题');
           setAiResult(errMsg2, 'error');
           window.__dbg('[AI Test] 异常: ' + e.message);
         }
