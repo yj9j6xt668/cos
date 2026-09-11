@@ -167,78 +167,297 @@ const DocumentAPI = {
     return { success: false, error: '未指定保存路径' };
   },
   
+  // ========== 取图/置图健壮化（对齐 HHPS 防御式思路）==========
+  // 共享互斥链：阻止「自动获取」「置入」「测试连接」在同一时刻进入 executeAsModal，
+  // 避免 UXP 抛 "modal scope already open" 导致的偶发崩溃。
+  __hostModalChain: Promise.resolve(),
+  _withHostLock: function (fn) {
+    const run = this.__hostModalChain.then(fn, fn);
+    this.__hostModalChain = run.catch(() => {});
+    return run;
+  },
+  _safeSelectionBounds(doc) {
+    try {
+      if (!doc || !doc.selection) return null;
+      const empty = doc.selection.empty;
+      if (typeof empty === 'boolean' && empty) return null;
+      const sb = doc.selection.bounds;
+      if (!sb || sb[0] == null || sb[2] == null) return null;
+      const px = (v) => (v && v.as ? v.as('px') : v);
+      const left = px(sb[0]), top = px(sb[1]), right = px(sb[2]), bottom = px(sb[3]);
+      const w = Math.round(right - left), h = Math.round(bottom - top);
+      if (!isFinite(w) || !isFinite(h) || w <= 0 || h <= 0) return null;
+      return { left, top, right, bottom, w, h };
+    } catch (e) { return null; }
+  },
+
   // 导出为临时文件并返回base64
   async exportAsBase64(options = {}) {
-    const { format = 'png', quality = 9, source = 'merged' } = options;
-    const doc = app.activeDocument;
+    const { format = 'png', quality = 9, source = 'auto' } = options;
     const fs = uxp.storage.localFileSystem;
     const tempFolder = await fs.getTemporaryFolder();
-    const fileName = `cosai_export_${Date.now()}.${format}`;
+    // HHPS 式唯一文件名：时间戳 + 随机后缀，避免并发碰撞
+    const fileName = `cosai_export_${Date.now()}_${Math.random().toString(36).slice(2)}.${format}`;
+    const file = await tempFolder.createFile(fileName, { overwrite: true });
+
+    return DocumentAPI._withHostLock(async () => {
+      try {
+        // saveAs 会修改文档状态，必须在 modal scope 内执行
+        await core.executeAsModal(async () => {
+          const doc = app.activeDocument;
+          if (!doc) throw new Error('没有打开的文档');
+
+          // auto：有选区 → 选区导出，无选区 → 全文档合并导出
+          let useSelection = source === 'selection';
+          if (source === 'auto') {
+            useSelection = !!DocumentAPI._safeSelectionBounds(doc);
+          }
+
+          if (useSelection) {
+            // 选区导出：按选区真实像素尺寸新建文档 → 复制选区 → 粘贴 → 导出 → 关闭
+            // HHPS 思路：进入 modal 后实时取 doc 与选区，避免捕获过期的活动文档
+            const sel = DocumentAPI._safeSelectionBounds(app.activeDocument);
+            const selW = (sel && sel.w > 0) ? sel.w : 512;
+            const selH = (sel && sel.h > 0) ? sel.h : 512;
+
+            if (sel) {
+              await batchPlay(
+                [
+                  { _obj: 'copy' },
+                  {
+                    _obj: 'make',
+                    _target: [{ _ref: 'document' }],
+                    new: {
+                      _obj: 'document',
+                      width: { _unit: 'pixelsUnit', _value: selW },
+                      height: { _unit: 'pixelsUnit', _value: selH },
+                    },
+                    preset: { _enum: 'presetKindType', _value: 'presetKindDefault' },
+                  },
+                  { _obj: 'paste' },
+                ],
+                { synchronousExecution: false }
+              );
+
+              const newDoc = app.activeDocument;
+              if (newDoc) {
+                switch (format.toLowerCase()) {
+                  case 'png':
+                    await newDoc.saveAs.png(file, { compression: 6 }, true);
+                    break;
+                  case 'jpg':
+                    await newDoc.saveAs.jpg(file, { quality }, true);
+                    break;
+                }
+                try { await newDoc.closeWithoutSaving(); } catch (e) {}
+              }
+            }
+          } else {
+            // 合并导出（整张画布）
+            switch (format.toLowerCase()) {
+              case 'png':
+                await doc.saveAs.png(file, { compression: 6 }, true);
+                break;
+              case 'jpg':
+              case 'jpeg':
+                await doc.saveAs.jpg(file, { quality }, true);
+                break;
+              case 'webp':
+                await doc.saveAs.webp(file, { quality }, true);
+                break;
+            }
+          }
+        }, { commandName: '导出图像 Base64' });
+
+        // 读取文件转base64（文件读取不需要 modal）
+        const arrayBuffer = await file.read({ format: uxp.storage.formats.binary });
+        const base64 = arrayBufferToBase64(arrayBuffer);
+        try { await file.delete(); } catch (e) {}
+        return { format, base64: `data:image/${format};base64,${base64}` };
+      } catch (err) {
+        try { await file.delete(); } catch (e) {}
+        throw err;
+      }
+    });
+  },
+
+  // 将 base64 图片贴入画布（新建图层）
+  async placeImage(options = {}) {
+    const { base64, name = 'AI 生成结果', mode = 'newLayer' } = options;
+    if (!base64) throw new Error('placeImage: base64 不能为空');
+
+    // 清理 base64（去掉 data: 前缀）
+    let cleanB64 = base64;
+    if (cleanB64.indexOf(',') > 0) {
+      cleanB64 = cleanB64.split(',')[1];
+    }
+
+    const fs = uxp.storage.localFileSystem;
+    const tempFolder = await fs.getTemporaryFolder();
+    const fileName = `cosai_place_${Date.now()}.png`;
     const file = await tempFolder.createFile(fileName);
-    
+
     try {
-      // saveAs 会修改文档状态，必须在 modal scope 内执行
-      await core.executeAsModal(async () => {
-        if (source === 'selection') {
-          // 选区导出：复制选区 → 新建文档 → 导出 → 关闭
+      // 写入临时文件
+      const arrayBuffer = base64ToArrayBuffer(cleanB64);
+      await file.write(arrayBuffer, { format: uxp.storage.formats.binary });
+
+      // 在 modal scope 内执行贴入（纳入共享互斥锁，避免与自动获取并发进 modal）
+      const result = await DocumentAPI._withHostLock(async () => core.executeAsModal(async () => {
+        const doc = app.activeDocument;
+        if (!doc) throw new Error('没有打开的文档');
+
+        // 选区模式：打开临时 PNG → 全选复制 → 关闭 → 贴入当前目标选区
+        if (mode === 'replace' && doc.selection && !doc.selection.empty) {
+          const docId = doc.id;
+          const opened = await app.open(file);
+          try {
+            await batchPlay(
+              [
+                { _obj: 'selectAll' },
+                { _obj: 'copy' },
+              ],
+              { synchronousExecution: false }
+            );
+          } finally {
+            try { await opened.closeWithoutSaving(); } catch (e) {}
+          }
+          try {
+            if (app.activeDocument.id !== docId) {
+              app.activeDocument = doc;
+            }
+          } catch (e) { /* 某些版本不允许直接赋值，忽略 */ }
+
+          // 记录粘贴前活动图层 id，事后按 id 回溯（batchPlay 后 UXP DOM 会失同步）
+          let targetLayerId = null;
+          if (doc.activeLayer && doc.activeLayer.id) targetLayerId = doc.activeLayer.id;
+          await batchPlay([{ _obj: 'paste' }], { synchronousExecution: false });
+
+          let active = targetLayerId != null ? findLayerById(doc.layers, targetLayerId) : null;
+          active = active || doc.activeLayer || (doc.layers && doc.layers[0]);
+          if (!active) throw new Error('贴入画布后无法定位生成图层');
+          return {
+            layerId: active.id,
+            layerName: active.name || name,
+            width: active.bounds ? (active.bounds.right - active.bounds.left) : 0,
+            height: active.bounds ? (active.bounds.bottom - active.bounds.top) : 0,
+          };
+        }
+
+        // 新建图层模式：打开临时 PNG → 复制 → 关闭 → 粘贴为顶层像素图层。
+        // 不预建空层，由 PS 粘贴自动新建包含图片的顶层图层，避免返回空层；
+        // 粘贴后 UXP DOM 会失同步，用 resolveNewLayerId 在 action 层稳定定位新图层。
+        const beforeIds = collectLayerIds(doc);
+        const opened2 = await app.open(file);
+        try {
           await batchPlay(
-            [
-              { _obj: 'copy' },
-              {
-                _obj: 'make',
-                _target: [{ _ref: 'document' }],
-                new: {
-                  _obj: 'document',
-                  width: { _unit: 'pixelsUnit', _value: 512 },
-                  height: { _unit: 'pixelsUnit', _value: 512 },
-                },
-                preset: { _enum: 'presetKindType', _value: 'presetKindDefault' },
-              },
-              { _obj: 'paste' },
-            ],
+            [{ _obj: 'selectAll' }, { _obj: 'copy' }],
             { synchronousExecution: false }
           );
-          
-          const newDoc = app.activeDocument;
-          switch (format.toLowerCase()) {
-            case 'png':
-              await newDoc.saveAs.png(file, { compression: 6 }, true);
-              break;
-            case 'jpg':
-              await newDoc.saveAs.jpg(file, { quality }, true);
-              break;
+        } finally {
+          try { await opened2.closeWithoutSaving(); } catch (e) {}
+        }
+        try {
+          if (app.activeDocument.id !== doc.id) app.activeDocument = doc;
+        } catch (e) { /* 某些版本不允许直接赋值，忽略 */ }
+
+        await batchPlay([{ _obj: 'paste' }], { synchronousExecution: false });
+
+        const placedId = await resolveNewLayerId(doc, beforeIds);
+        let placed = placedId != null ? findLayerById(doc.layers, placedId) : null;
+        if (!placed) {
+          placed = doc.activeLayer || (doc.layers && doc.layers.length > 0 ? doc.layers[0] : null);
+        }
+        if (!placed) throw new Error('置入图片后无法定位生成图层');
+
+        // 若存在选区：将返图缩放并移动到选区范围，与原图对齐贴合（best-effort，失败不影响已置入）
+        let selRect = null;
+        try {
+          if (doc.selection && !doc.selection.empty) {
+            const sb = doc.selection.bounds;
+            if (sb && sb[0] && sb[2]) {
+              selRect = {
+                left: sb[0].as ? sb[0].as('px') : sb[0],
+                top: sb[1].as ? sb[1].as('px') : sb[1],
+                right: sb[2].as ? sb[2].as('px') : sb[2],
+                bottom: sb[3].as ? sb[3].as('px') : sb[3],
+              };
+            }
           }
-          await newDoc.closeWithoutSaving();
-        } else {
-          // 合并导出或当前图层导出
-          switch (format.toLowerCase()) {
-            case 'png':
-              await doc.saveAs.png(file, { compression: 6 }, true);
-              break;
-            case 'jpg':
-            case 'jpeg':
-              await doc.saveAs.jpg(file, { quality }, true);
-              break;
-            case 'webp':
-              await doc.saveAs.webp(file, { quality }, true);
-              break;
+        } catch (e) {}
+
+        if (selRect) {
+          try {
+            const sw = selRect.right - selRect.left;
+            const sh = selRect.bottom - selRect.top;
+            if (sw > 0 && sh > 0) {
+              // 先选中置入图层作为 transform 目标
+              await batchPlay(
+                [{ _obj: 'select', _target: [{ _ref: 'layer', _id: placed.id }] }],
+                { synchronousExecution: false }
+              );
+              await batchPlay([{
+                _obj: 'transform',
+                _target: [{ _ref: 'layer', _enum: 'ordinal', _value: 'targetEnum' }],
+                freeTransformCenterState: { _enum: 'quadCenterState', _value: 'quadCenterCenter' },
+                offset: { horizontal: selRect.left, vertical: selRect.top },
+                bounds: { top: 0, left: 0, right: sw, bottom: sh },
+              }], { synchronousExecution: false });
+              // batchPlay 后 UXP DOM 可能失同步，按 id 重新取最新图层对象
+              const freshPlaced = placedId != null ? findLayerById(doc.layers, placedId) : null;
+              if (freshPlaced) placed = freshPlaced;
+            }
+          } catch (e) {
+            console.warn('[Place] 选区对齐失败，保留原始尺寸: ' + (e && e.message ? e.message : e));
           }
         }
-      }, { commandName: '导出图像 Base64' });
-      
-      // 读取文件转base64（文件读取不需要 modal）
-      const arrayBuffer = await file.read({ format: uxp.storage.formats.binary });
-      const base64 = arrayBufferToBase64(arrayBuffer);
-      
-      await file.delete();
-      return { format, base64: `data:image/${format};base64,${base64}` };
-    } catch (err) {
+
+        if (name) {
+          try { placed.name = name; } catch (e) {}
+        }
+        return serializeLayer(placed);
+      }, { commandName: 'AI 生成结果贴入画布' }));
+
+      return result;
+    } finally {
       try { await file.delete(); } catch (e) {}
-      throw err;
     }
   },
-  
-  // 关闭文档
+
+  // 保存 base64 图片到本地目录
+  async saveImageToLocal(options = {}) {
+    const { base64, fileName, folder = 'CosAI_生成结果' } = options;
+    if (!base64) throw new Error('saveImageToLocal: base64 不能为空');
+
+    let cleanB64 = base64;
+    if (cleanB64.indexOf(',') > 0) {
+      cleanB64 = cleanB64.split(',')[1];
+    }
+
+    const fs = uxp.storage.localFileSystem;
+    const dataFolder = await fs.getDataFolder();
+
+    // 创建子目录
+    let targetFolder;
+    try {
+      targetFolder = await dataFolder.getEntry(folder);
+    } catch (e) {
+      targetFolder = await dataFolder.createFolder(folder);
+    }
+
+    const fname = fileName || `ai_gen_${Date.now()}.png`;
+    const file = await targetFolder.createFile(fname, { overwrite: true });
+
+    const arrayBuffer = base64ToArrayBuffer(cleanB64);
+    await file.write(arrayBuffer, { format: uxp.storage.formats.binary });
+
+    return {
+      path: targetFolder.nativePath + '/' + fname,
+      fileName: fname,
+      folder: targetFolder.nativePath,
+    };
+  },
+
   async closeDocument(save = 'prompt') {
     const doc = app.activeDocument;
     const saveOption = {
@@ -1878,6 +2097,292 @@ const ToolboxAPI = {
   },
 };
 
+// ========== 配置存储（持久化到插件数据目录）==========
+const ConfigStore = {
+  _cache: null,
+
+  async _getDataFolder() {
+    const fs = uxp.storage.localFileSystem;
+    const folder = await fs.getDataFolder();
+    // 确保 configs 子目录存在
+    try {
+      return await folder.getEntry('configs');
+    } catch (e) {
+      return await folder.createFolder('configs');
+    }
+  },
+
+  async _loadAll() {
+    if (this._cache) return this._cache;
+    const folder = await this._getDataFolder();
+    const entries = await folder.getEntries();
+    const configs = {};
+    let activeName = null;
+
+    for (const entry of entries) {
+      if (entry.isFile && entry.name.endsWith('.json')) {
+        try {
+          const data = await entry.read({ format: uxp.storage.formats.utf8 });
+          const obj = JSON.parse(data);
+          const name = entry.name.replace(/\.json$/, '');
+          configs[name] = obj.config || {};
+          if (obj.active) activeName = name;
+        } catch (e) {
+          console.warn('[ConfigStore] 解析配置文件失败:', entry.name, e);
+        }
+      }
+    }
+
+    this._cache = { configs, activeName };
+    return this._cache;
+  },
+
+  _invalidate() { this._cache = null; },
+
+  async listCustomers() {
+    const data = await this._loadAll();
+    const names = Object.keys(data.configs);
+    if (names.length === 0) {
+      names.push('默认客户');
+      data.activeName = '默认客户';
+    }
+    if (!data.activeName || !data.configs[data.activeName]) {
+      data.activeName = names[0];
+    }
+    return { names, activeName: data.activeName };
+  },
+
+  async getCustomer(name) {
+    const data = await this._loadAll();
+    const customerName = name || data.activeName || '默认客户';
+    return {
+      name: customerName,
+      config: data.configs[customerName] || null,
+    };
+  },
+
+  async saveCustomer(name, config) {
+    const folder = await this._getDataFolder();
+    const customerName = name || '默认客户';
+    const fileName = customerName + '.json';
+
+    // 先读取当前所有配置以便更新 active 标记
+    const data = await this._loadAll();
+    data.configs[customerName] = config;
+    data.activeName = customerName;
+
+    // 写入当前客户配置（含 active 标记）
+    let file;
+    try {
+      file = await folder.getEntry(fileName);
+    } catch (e) {
+      file = await folder.createFile(fileName, { overwrite: true });
+    }
+    await file.write(JSON.stringify({ name: customerName, config, active: true }), {
+      format: uxp.storage.formats.utf8,
+    });
+
+    // 清除其他文件的 active 标记
+    const entries = await folder.getEntries();
+    for (const entry of entries) {
+      if (entry.isFile && entry.name.endsWith('.json') && entry.name !== fileName) {
+        try {
+          const raw = await entry.read({ format: uxp.storage.formats.utf8 });
+          const obj = JSON.parse(raw);
+          if (obj.active) {
+            obj.active = false;
+            await entry.write(JSON.stringify(obj), { format: uxp.storage.formats.utf8 });
+          }
+        } catch (e) { /* 忽略 */ }
+      }
+    }
+
+    this._invalidate();
+    return { success: true, name: customerName };
+  },
+
+  async deleteCustomer(name) {
+    if (!name) return { success: false, error: '客户名不能为空' };
+    const folder = await this._getDataFolder();
+    const fileName = name + '.json';
+
+    try {
+      const file = await folder.getEntry(fileName);
+      await file.delete();
+      this._invalidate();
+
+      // 如果删除的是活跃客户，把活跃客户设为第一个
+      const data = await this._loadAll();
+      const names = Object.keys(data.configs);
+      if (data.activeName === name && names.length > 0) {
+        data.activeName = names[0];
+        // 写入 active 标记
+        try {
+          const firstFile = await folder.getEntry(names[0] + '.json');
+          const raw = await firstFile.read({ format: uxp.storage.formats.utf8 });
+          const obj = JSON.parse(raw);
+          obj.active = true;
+          await firstFile.write(JSON.stringify(obj), { format: uxp.storage.formats.utf8 });
+        } catch (e) { /* 忽略 */ }
+        this._invalidate();
+      }
+
+      return { success: true };
+    } catch (e) {
+      return { success: false, error: '删除失败：' + e.message };
+    }
+  },
+};
+
+// ========== 调校配置持久化（Key 写入本地文件）==========
+// 将 API Key / 地址 / 默认模型保存到插件数据目录的单个 JSON 文件中，
+// WebView 启动时自动读取，避免每次重新输入 Key。
+const KeyConfigAPI = {
+  FILE_NAME: 'cosai_key.json',
+
+  async _getFile() {
+    const fs = uxp.storage.localFileSystem;
+    const folder = await fs.getDataFolder();
+    try {
+      return await folder.getEntry(this.FILE_NAME);
+    } catch (e) {
+      return await folder.createFile(this.FILE_NAME, { overwrite: true });
+    }
+  },
+
+  async read() {
+    try {
+      const file = await this._getFile();
+      const raw = await file.read({ format: uxp.storage.formats.utf8 });
+      return JSON.parse(raw);
+    } catch (e) {
+      return { apiKey: '', baseUrl: '', defaultModel: '', exists: false };
+    }
+  },
+
+  async save(options = {}) {
+    const { apiKey = '', baseUrl = '', defaultModel = '', provider = 'grs' } = options;
+    const fs = uxp.storage.localFileSystem;
+    const folder = await fs.getDataFolder();
+    let file;
+    try {
+      file = await folder.getEntry(this.FILE_NAME);
+    } catch (e) {
+      file = await folder.createFile(this.FILE_NAME, { overwrite: true });
+    }
+    const payload = { provider, apiKey, baseUrl, defaultModel, updatedAt: Date.now() };
+    await file.write(JSON.stringify(payload, null, 2), { format: uxp.storage.formats.utf8 });
+    return { success: true, path: folder.nativePath + '/' + this.FILE_NAME };
+  },
+
+  async clear() {
+    try {
+      const file = await this._getFile();
+      await file.delete();
+    } catch (e) { /* 忽略 */ }
+    return { success: true };
+  },
+};
+
+// ========== 日志落盘（按天分文件，追加写入）==========
+const LogAPI = {
+  FOLDER_NAME: 'cosai_logs',
+
+  async _ensureFile() {
+    const fs = uxp.storage.localFileSystem;
+    const dataFolder = await fs.getDataFolder();
+    let logsFolder;
+    try {
+      logsFolder = await dataFolder.getEntry(this.FOLDER_NAME);
+    } catch (e) {
+      logsFolder = await dataFolder.createFolder(this.FOLDER_NAME);
+    }
+    const d = new Date();
+    const pad = (n) => (n < 10 ? '0' : '') + n;
+    const name = `cosai_${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}.log`;
+    let file;
+    try {
+      file = await logsFolder.getEntry(name);
+    } catch (e) {
+      file = await logsFolder.createFile(name, { overwrite: false });
+    }
+    return { logsFolder, file, name };
+  },
+
+  _line(entry) {
+    const pad = (n) => (n < 10 ? '0' : '') + n;
+    const ts = entry && entry.ts ? new Date(entry.ts) : new Date();
+    return `[${pad(ts.getHours())}:${pad(ts.getMinutes())}:${pad(ts.getSeconds())}.${String(ts.getMilliseconds()).padStart(3, '0')}]`
+      + ` [${String(entry && entry.level || 'info').toUpperCase()}]`
+      + (entry && entry.module ? ` [${entry.module}]` : '')
+      + ' ' + String(entry && entry.msg != null ? entry.msg : '');
+  },
+
+  async append(entries = []) {
+    if (!Array.isArray(entries) || entries.length === 0) return { success: true, written: 0 };
+    try {
+      const { file, logsFolder, name } = await this._ensureFile();
+      // UXP write 为覆盖写，需先读旧内容再拼接；超大时截断保留尾部
+      let old = '';
+      try { old = await file.read({ format: uxp.storage.formats.utf8 }); } catch (e) {}
+      if (old.length > 524288) old = old.slice(-262144); // 旧内容>512KB 则只保留尾部256KB
+      let newText = '';
+      for (let i = 0; i < entries.length; i++) {
+        newText += this._line(entries[i]) + '\n';
+      }
+      await file.write(old + newText, { format: uxp.storage.formats.utf8 });
+      // 若超过单文件上限，轮转一次（改名 .1.log 再新建），避免无限膨胀
+      try {
+        const size = await file.size;
+        if (size > 2097152) {
+          try { await file.copyTo(logsFolder, name.replace(/\.log$/, '.1.log'), true); } catch (e) {}
+          try { await file.delete(); } catch (e) {}
+        }
+      } catch (e) {}
+      return { success: true, written: entries.length, file: logsFolder.nativePath + '/' + name };
+    } catch (e) {
+      return { success: false, error: e && e.message ? e.message : String(e) };
+    }
+  },
+
+  async listFiles() {
+    try {
+      const fs = uxp.storage.localFileSystem;
+      const dataFolder = await fs.getDataFolder();
+      const logsFolder = await dataFolder.getEntry(this.FOLDER_NAME);
+      const entries = await logsFolder.getEntries();
+      const files = [];
+      for (const e of entries) {
+        if (e.isFile) {
+          let size = 0;
+          try { size = e.size; } catch (err) {}
+          files.push({ name: e.name, size });
+        }
+      }
+      return { success: true, files };
+    } catch (e) {
+      return { success: false, files: [], error: e.message };
+    }
+  },
+
+  async clearDay(dateStr) {
+    try {
+      const fs = uxp.storage.localFileSystem;
+      const dataFolder = await fs.getDataFolder();
+      const logsFolder = await dataFolder.getEntry(this.FOLDER_NAME);
+      const entries = await logsFolder.getEntries();
+      for (const e of entries) {
+        if (e.isFile && (!dateStr || e.name.indexOf(dateStr) >= 0)) {
+          try { await e.delete(); } catch (err) {}
+        }
+      }
+      return { success: true };
+    } catch (e) {
+      return { success: true };
+    }
+  },
+};
+
 // ========== 请求路由 ==========
 
 const apiHandlers = {
@@ -1888,6 +2393,8 @@ const apiHandlers = {
   createDocument: (data) => DocumentAPI.createDocument(data),
   saveDocument: (data) => DocumentAPI.saveDocument(data),
   exportAsBase64: (data) => DocumentAPI.exportAsBase64(data),
+  placeImage: (data) => DocumentAPI.placeImage(data),
+  saveImageToLocal: (data) => DocumentAPI.saveImageToLocal(data),
   closeDocument: (data) => DocumentAPI.closeDocument(data?.save),
   resizeCanvas: ({ width, height, anchor }) => DocumentAPI.resizeCanvas(width, height, anchor),
   resizeImage: ({ width, height, resolution, resample }) =>
@@ -1949,6 +2456,22 @@ const apiHandlers = {
   frequencySeparation: (data) => ToolboxAPI.frequencySeparation(data),
   dodgeBurnCurves: (data) => ToolboxAPI.dodgeBurnCurves(data),
   glowEffect: (data) => ToolboxAPI.glowEffect(data),
+
+  // 配置存储
+  configListCustomers: () => ConfigStore.listCustomers(),
+  configGetCustomer: ({ name }) => ConfigStore.getCustomer(name),
+  configSaveCustomer: ({ name, config }) => ConfigStore.saveCustomer(name, config),
+  configDeleteCustomer: ({ name }) => ConfigStore.deleteCustomer(name),
+
+  // 调校 Key 本地文件
+  readKeyConfig: () => KeyConfigAPI.read(),
+  saveKeyConfig: (data) => KeyConfigAPI.save(data || {}),
+  clearKeyConfig: () => KeyConfigAPI.clear(),
+
+  // 日志落盘
+  appendLog: (data) => LogAPI.append(data && data.entries),
+  listLogs: () => LogAPI.listFiles(),
+  clearLogs: (data) => LogAPI.clearDay(data && data.dateStr),
 };
 
 /**
@@ -2002,4 +2525,12 @@ window.__cosaiHost = {
   placeLayerFromBase64: (b64, name) => LayerAPI.placeLayerFromBase64(b64, name),
   // 选区
   getSelectionBounds: () => SelectionAPI.getSelectionBounds(),
+  // 调校 Key 本地文件
+  readKeyConfig: () => KeyConfigAPI.read(),
+  saveKeyConfig: (data) => KeyConfigAPI.save(data || {}),
+  clearKeyConfig: () => KeyConfigAPI.clear(),
+  // 日志落盘
+  appendLog: (data) => LogAPI.append(data && data.entries),
+  listLogs: () => LogAPI.listFiles(),
+  clearLogs: (data) => LogAPI.clearDay(data && data.dateStr),
 };

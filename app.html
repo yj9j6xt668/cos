@@ -4,12 +4,12 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>CosAI-v6</title>
-  <link rel="stylesheet" href="app.css" />
+  <!-- 手写 UI 使用内联样式，不再加载 React 版 app.css，避免类名冲突 -->
   <style>
     html, body { margin:0; padding:0; width:100%; height:100%; overflow:hidden; background:#1a1a2e; }
     #root { width:100%; height:100%; }
     #cosai-dbg {
-      position: fixed; left:0; right:0; bottom:0; z-index: 999999;
+      position: fixed; right: 40px; bottom: 0; left: 60px;
       background: rgba(0,0,0,.92); color: #7dd3fc;
       font: 10px/1.4 ui-monospace, Menlo, monospace;
       padding: 4px 6px; max-height: 110px; overflow: auto;
@@ -17,6 +17,7 @@
       border-top: 1px solid #334155;
       pointer-events: auto;
       transition: max-height .2s ease, padding .2s ease;
+      z-index: 999990;
     }
     #cosai-dbg.collapsed {
       max-height: 20px;
@@ -82,6 +83,1309 @@
       font-size: 16px; cursor: pointer; line-height: 1;
     }
     #cosai-ai-test-panel .close-btn:hover { color: #fff; }
+
+    /* ===== AI 绘画面板（HHPS 闭源大模型风格） ===== */
+    #cosai-draw-panel {
+      display: none;
+      position: fixed;
+      top: 50px;
+      left: 50%;
+      transform: translateX(-50%);
+      width: 340px;
+      z-index: 999998;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+    }
+    .draw-close-btn {
+      position: absolute; top: 8px; right: 8px;
+      background: none; border: none; color: rgba(196, 181, 253, 0.5);
+      font-size: 18px; cursor: pointer; line-height: 1;
+      z-index: 10; width: 28px; height: 28px;
+      display: flex; align-items: center; justify-content: center;
+      border-radius: 6px; transition: all 0.15s;
+    }
+    .draw-close-btn:hover { color: #fff; background: rgba(255,255,255,0.1); }
+
+    .draw-card {
+      background: linear-gradient(160deg, #1e1b4b 0%, #2e1065 50%, #3b0764 100%);
+      border-radius: 18px;
+      padding: 20px;
+      border: 1px solid rgba(139, 92, 246, 0.25);
+      box-shadow: 0 12px 40px rgba(0, 0, 0, 0.4),
+                  0 0 0 1px rgba(255, 255, 255, 0.04) inset,
+                  0 1px 0 rgba(255, 255, 255, 0.06) inset;
+    }
+
+    .draw-header {
+      display: flex; align-items: center; gap: 12px; margin-bottom: 16px;
+    }
+    .draw-icon-wrap {
+      width: 46px; height: 46px;
+      background: linear-gradient(135deg, #8b5cf6, #ec4899);
+      border-radius: 12px;
+      display: flex; align-items: center; justify-content: center;
+      color: #fff;
+      box-shadow: 0 4px 16px rgba(139, 92, 246, 0.4);
+    }
+    .draw-icon { width: 22px; height: 22px; }
+    .draw-title-group { flex: 1; }
+    .draw-title {
+      font-size: 17px; font-weight: 700; color: #fff;
+      margin: 0; letter-spacing: -0.3px;
+      background: linear-gradient(135deg, #fff, #ddd6fe);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+    .draw-subtitle {
+      font-size: 11px; color: rgba(196, 181, 253, 0.6);
+      margin: 2px 0 0 0; font-weight: 400;
+    }
+
+    /* 上传区域 */
+    .draw-upload-area {
+      position: relative;
+      width: 100%;
+      aspect-ratio: 16 / 10;
+      background: rgba(15, 23, 42, 0.5);
+      border: 2px dashed rgba(139, 92, 246, 0.3);
+      border-radius: 12px;
+      overflow: hidden;
+      margin-bottom: 10px;
+      transition: border-color 0.2s;
+    }
+    .draw-upload-area:hover { border-color: rgba(139, 92, 246, 0.5); }
+    .draw-upload-placeholder {
+      width: 100%; height: 100%;
+      display: flex; flex-direction: column;
+      align-items: center; justify-content: center;
+      gap: 6px;
+    }
+    .draw-upload-icon { font-size: 32px; opacity: 0.6; }
+    .draw-upload-text {
+      font-size: 12px; color: rgba(196, 181, 253, 0.7);
+      font-weight: 500;
+    }
+    .draw-upload-hint {
+      font-size: 10px; color: rgba(148, 163, 184, 0.5);
+    }
+    .draw-upload-preview {
+      width: 100%; height: 100%;
+      object-fit: contain;
+      display: block;
+    }
+    .draw-upload-remove {
+      position: absolute; top: 6px; right: 6px;
+      width: 24px; height: 24px;
+      background: rgba(0, 0, 0, 0.6);
+      border: none; border-radius: 50%;
+      color: #fff; cursor: pointer;
+      display: flex; align-items: center; justify-content: center;
+      transition: background 0.15s;
+    }
+    .draw-upload-remove:hover { background: rgba(220, 38, 38, 0.8); }
+
+    /* 取画布图按钮 */
+    .draw-get-canvas-btn {
+      width: 100%;
+      display: flex; align-items: center; justify-content: center; gap: 6px;
+      padding: 9px 12px;
+      background: rgba(15, 23, 42, 0.6);
+      border: 1px solid rgba(139, 92, 246, 0.25);
+      border-radius: 8px;
+      color: #c4b5fd;
+      font-size: 12px; font-weight: 500;
+      cursor: pointer;
+      font-family: inherit;
+      transition: all 0.15s;
+      margin-bottom: 14px;
+    }
+    .draw-get-canvas-btn:hover {
+      background: rgba(30, 27, 75, 0.8);
+      border-color: rgba(167, 139, 250, 0.4);
+      color: #ddd6fe;
+    }
+
+    /* 标签通用 */
+    .draw-label {
+      display: flex; align-items: center; justify-content: space-between;
+      font-size: 11px; font-weight: 500;
+      color: rgba(196, 181, 253, 0.8);
+      margin-bottom: 6px;
+      letter-spacing: 0.2px;
+    }
+    .draw-label-hint {
+      font-size: 10px; color: rgba(148, 163, 184, 0.5);
+      font-weight: 400;
+    }
+
+    /* 提示词输入 */
+    .draw-prompt-section { margin-bottom: 12px; }
+    .draw-prompt-input {
+      width: 100%; box-sizing: border-box;
+      background: rgba(15, 23, 42, 0.6);
+      border: 1px solid rgba(139, 92, 246, 0.25);
+      color: #e0e7ff;
+      padding: 10px 12px;
+      border-radius: 8px;
+      font-size: 12px;
+      font-family: inherit;
+      line-height: 1.5;
+      resize: vertical;
+      transition: border-color 0.2s, box-shadow 0.2s;
+    }
+    .draw-prompt-input:focus {
+      outline: none;
+      border-color: #a78bfa;
+      box-shadow: 0 0 0 3px rgba(167, 139, 250, 0.12);
+    }
+    .draw-prompt-input::placeholder { color: rgba(148, 163, 184, 0.4); }
+
+    /* 预设标签 */
+    .draw-presets-section { margin-bottom: 14px; }
+    .draw-preset-tags {
+      display: flex; flex-wrap: wrap; gap: 6px;
+    }
+    .draw-preset-tag {
+      padding: 5px 10px;
+      background: rgba(15, 23, 42, 0.5);
+      border: 1px solid rgba(139, 92, 246, 0.2);
+      border-radius: 16px;
+      font-size: 11px;
+      color: #c4b5fd;
+      cursor: pointer;
+      font-family: inherit;
+      transition: all 0.15s;
+      white-space: nowrap;
+    }
+    .draw-preset-tag:hover {
+      background: rgba(139, 92, 246, 0.2);
+      border-color: rgba(167, 139, 250, 0.4);
+      transform: translateY(-1px);
+    }
+    .draw-preset-tag:active { transform: translateY(0); }
+
+    /* 参数设置 */
+    .draw-params {
+      display: grid;
+      grid-template-columns: 1fr 1fr 1fr;
+      gap: 8px;
+      margin-bottom: 16px;
+    }
+    .draw-param-item {
+      display: flex; flex-direction: column; gap: 4px;
+    }
+    .draw-param-label {
+      font-size: 10px; color: rgba(148, 163, 184, 0.6);
+      font-weight: 500;
+    }
+    .draw-param-select {
+      width: 100%; box-sizing: border-box;
+      background: rgba(15, 23, 42, 0.6);
+      border: 1px solid rgba(139, 92, 246, 0.2);
+      color: #ddd6fe;
+      padding: 7px 8px;
+      border-radius: 6px;
+      font-size: 11px;
+      font-family: inherit;
+      cursor: pointer;
+      transition: border-color 0.15s;
+    }
+    .draw-param-select:focus {
+      outline: none; border-color: #a78bfa;
+    }
+
+    /* 生成按钮 */
+    .draw-generate-btn {
+      width: 100%;
+      display: flex; align-items: center; justify-content: center; gap: 8px;
+      padding: 13px 16px;
+      background: linear-gradient(135deg, #8b5cf6, #ec4899);
+      border: none;
+      border-radius: 10px;
+      color: #fff;
+      font-size: 14px; font-weight: 700;
+      cursor: pointer;
+      font-family: inherit;
+      transition: all 0.2s;
+      box-shadow: 0 4px 16px rgba(139, 92, 246, 0.4),
+                  0 1px 0 rgba(255, 255, 255, 0.2) inset;
+    }
+    .draw-generate-btn:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 6px 20px rgba(139, 92, 246, 0.5),
+                  0 1px 0 rgba(255, 255, 255, 0.25) inset;
+    }
+    .draw-generate-btn:active { transform: translateY(0); }
+    .draw-generate-btn:disabled {
+      opacity: 0.5; cursor: not-allowed;
+      transform: none !important;
+    }
+    .draw-gen-icon { width: 18px; height: 18px; }
+
+    /* 进度条 */
+    .draw-progress {
+      margin-top: 12px;
+      display: flex; flex-direction: column; gap: 6px;
+    }
+    .draw-progress-bar {
+      width: 100%; height: 4px;
+      background: rgba(15, 23, 42, 0.5);
+      border-radius: 2px;
+      overflow: hidden;
+    }
+    .draw-progress-fill {
+      height: 100%;
+      background: linear-gradient(90deg, #8b5cf6, #ec4899);
+      border-radius: 2px;
+      transition: width 0.3s ease;
+    }
+    .draw-progress-text {
+      font-size: 10px; color: rgba(196, 181, 253, 0.6);
+      text-align: center;
+    }
+
+    /* ===== GRS 配置卡片（HHPS 风格） ===== */
+    .grs-config-card {
+      background: linear-gradient(145deg, #1e1b4b 0%, #312e81 100%);
+      border-radius: 16px;
+      padding: 18px;
+      border: 1px solid rgba(129, 140, 248, 0.2);
+      box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3),
+                  0 0 0 0.5px rgba(255, 255, 255, 0.05) inset;
+    }
+    .grs-config-header {
+      display: flex; align-items: center; gap: 12px; margin-bottom: 14px;
+    }
+    .grs-config-icon {
+      width: 40px; height: 40px;
+      background: linear-gradient(135deg, #8b5cf6, #6366f1);
+      border-radius: 10px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 20px;
+      box-shadow: 0 4px 12px rgba(99, 102, 241, 0.4);
+    }
+    .grs-config-title-group { flex: 1; }
+    .grs-config-title {
+      font-size: 16px; font-weight: 700; color: #fff;
+      margin: 0; letter-spacing: -0.2px;
+    }
+    .grs-config-subtitle {
+      font-size: 11px; color: rgba(196, 181, 253, 0.7);
+      margin: 2px 0 0 0; font-weight: 400;
+    }
+
+    .grs-config-form {
+      margin-top: 14px;
+      display: flex; flex-direction: column; gap: 12px;
+    }
+    .grs-field {
+      display: flex; flex-direction: column; gap: 6px;
+    }
+    .grs-field-label {
+      font-size: 11px; color: rgba(196, 181, 253, 0.8);
+      font-weight: 500; letter-spacing: 0.2px;
+    }
+    .grs-field-input {
+      width: 100%; box-sizing: border-box;
+      background: rgba(15, 23, 42, 0.6);
+      border: 1px solid rgba(99, 102, 241, 0.25);
+      color: #e0e7ff;
+      padding: 9px 12px;
+      border-radius: 8px;
+      font-size: 12px;
+      font-family: inherit;
+      transition: border-color 0.2s, box-shadow 0.2s;
+    }
+    .grs-field-input:focus {
+      outline: none;
+      border-color: #818cf8;
+      box-shadow: 0 0 0 3px rgba(129, 140, 248, 0.15);
+    }
+    .grs-field-input::placeholder {
+      color: rgba(148, 163, 184, 0.4);
+    }
+    .grs-field-input-wrap {
+      position: relative;
+    }
+    .grs-field-input-wrap .grs-field-input {
+      padding-right: 36px;
+    }
+    .grs-field-toggle {
+      position: absolute; right: 8px; top: 50%;
+      transform: translateY(-50%);
+      background: none; border: none;
+      color: rgba(148, 163, 184, 0.5);
+      cursor: pointer; padding: 4px;
+      display: flex; align-items: center; justify-content: center;
+      border-radius: 4px;
+      transition: color 0.2s;
+    }
+    .grs-field-toggle:hover { color: #a5b4fc; }
+
+    .grs-config-actions {
+      display: flex; gap: 8px; margin-top: 16px;
+    }
+    .grs-btn {
+      flex: 1;
+      display: flex; align-items: center; justify-content: center; gap: 6px;
+      padding: 10px 14px;
+      border-radius: 8px;
+      font-size: 12px; font-weight: 600;
+      cursor: pointer;
+      border: none;
+      font-family: inherit;
+      transition: all 0.2s;
+    }
+    .grs-btn--primary {
+      background: linear-gradient(135deg, #8b5cf6, #6366f1);
+      color: #fff;
+      box-shadow: 0 4px 12px rgba(99, 102, 241, 0.4);
+    }
+    .grs-btn--primary:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 6px 16px rgba(99, 102, 241, 0.5);
+    }
+    .grs-btn--primary:active {
+      transform: translateY(0);
+    }
+    .grs-btn--secondary {
+      background: rgba(15, 23, 42, 0.6);
+      color: #c7d2fe;
+      border: 1px solid rgba(99, 102, 241, 0.25);
+    }
+    .grs-btn--secondary:hover {
+      background: rgba(30, 27, 75, 0.8);
+      border-color: rgba(129, 140, 248, 0.4);
+    }
+    .grs-btn:disabled {
+      opacity: 0.5; cursor: not-allowed; transform: none !important;
+    }
+
+    .grs-status {
+      margin-top: 12px;
+      padding: 8px 12px;
+      background: rgba(15, 23, 42, 0.5);
+      border-radius: 6px;
+      font-size: 11px;
+      color: rgba(196, 181, 253, 0.7);
+      text-align: center;
+      border: 1px solid rgba(99, 102, 241, 0.15);
+      line-height: 1.5;
+      white-space: pre-wrap;
+    }
+    .grs-status.success {
+      color: #34d399;
+      border-color: rgba(52, 211, 153, 0.3);
+      background: rgba(6, 78, 59, 0.3);
+    }
+    .grs-status.error {
+      color: #f87171;
+      border-color: rgba(248, 113, 113, 0.3);
+      background: rgba(127, 29, 29, 0.3);
+    }
+    .grs-status.loading {
+      color: #fbbf24;
+      border-color: rgba(251, 191, 36, 0.3);
+      background: rgba(120, 53, 15, 0.3);
+    }
+
+    /* ===== 积分卡（Claude Usage 风格进度条） ===== */
+    #cosai-credit-card {
+      background: #000;
+      border-radius: 12px;
+      padding: 12px 14px 14px;
+      margin-bottom: 12px;
+      color: #fff;
+      font-weight: 300;
+      user-select: none;
+      box-shadow: 0 0 0 0.5px rgba(255,255,255,0.06) inset;
+    }
+    #cosai-credit-card .uc-head {
+      display: flex; align-items: center; gap: 8px; margin-bottom: 8px;
+    }
+    #cosai-credit-card .uc-logo {
+      width: 20px; height: 20px;
+      filter: drop-shadow(0 0 6px rgba(255,255,255,0.25));
+    }
+    #cosai-credit-card .uc-title {
+      font-size: 15px; font-weight: 600; letter-spacing: -0.2px; flex: 1;
+    }
+    #cosai-credit-card .uc-refresh {
+      background: none; border: none; color: rgba(255,255,255,0.3);
+      width: 18px; height: 18px; padding: 0; cursor: pointer;
+      transition: color 0.15s;
+    }
+    #cosai-credit-card .uc-refresh:hover { color: rgba(255,255,255,0.7); }
+    #cosai-credit-card .uc-refresh svg { width: 12px; height: 12px; display: block; }
+    #cosai-credit-card .uc-refresh.spinning { animation: uc-spin 0.8s linear infinite; }
+    @keyframes uc-spin { to { transform: rotate(360deg); } }
+
+    #cosai-credit-card .uc-row {
+      display: flex; justify-content: space-between; align-items: baseline; margin-top: 2px;
+    }
+    #cosai-credit-card .uc-row--top { margin-top: 10px; }
+    #cosai-credit-card .uc-label {
+      font-size: 12px; color: rgba(255,255,255,0.6); font-weight: 400;
+    }
+    #cosai-credit-card .uc-meta {
+      font-size: 11px; color: rgba(255,255,255,0.4); font-weight: 300;
+    }
+    /* 总积分大数字 */
+    #cosai-credit-card .uc-total-row {
+      display: flex; justify-content: space-between; align-items: baseline;
+      margin: 6px 0 2px;
+    }
+    #cosai-credit-card .uc-total-label {
+      font-size: 12px; color: rgba(255,255,255,0.6); font-weight: 400;
+    }
+    #cosai-credit-card .uc-total-val {
+      font-size: 18px; font-weight: 700; color: #fff;
+      letter-spacing: -0.3px;
+      text-shadow: 0 0 8px rgba(255,255,255,0.15);
+    }
+    #cosai-credit-card .uc-total-sub {
+      font-size: 10px; color: rgba(255,255,255,0.35); font-weight: 300;
+      margin-top: -2px; text-align: right;
+    }
+    #cosai-credit-card .uc-divider {
+      height: 1px; background: rgba(255,255,255,0.08);
+      margin: 8px 0 6px;
+    }
+    #cosai-credit-card .uc-track {
+      width: 100%; height: 6px; background: rgba(255,255,255,0.1);
+      border-radius: 3px; margin-top: 4px; overflow: hidden;
+    }
+    #cosai-credit-card .uc-bar {
+      height: 100%; border-radius: 3px; width: 0%;
+      transition: width 0.6s cubic-bezier(0.22, 1, 0.36, 1);
+    }
+    #cosai-credit-card .uc-bar--orange {
+      background: linear-gradient(90deg, #ff6b35, #ff3d00);
+      box-shadow: 0 0 6px rgba(255,61,0,0.35);
+    }
+    #cosai-credit-card .uc-bar--green {
+      background: linear-gradient(90deg, #34d399, #10b981);
+      box-shadow: 0 0 6px rgba(16,185,129,0.35);
+    }
+    #cosai-credit-card .uc-pct {
+      font-size: 12px; font-weight: 500; margin-top: 2px;
+    }
+    #cosai-credit-card .uc-pct--orange { color: #ff7a45; }
+    #cosai-credit-card .uc-pct--green { color: #34d399; }
+
+    #cosai-credit-card.loading .uc-bar {
+      background: linear-gradient(90deg, rgba(255,255,255,0.1) 25%, rgba(255,255,255,0.2) 50%, rgba(255,255,255,0.1) 75%);
+      background-size: 200% 100%;
+      animation: uc-shimmer 1.2s infinite;
+      box-shadow: none;
+    }
+    @keyframes uc-shimmer {
+      0% { background-position: 200% 0; }
+      100% { background-position: -200% 0; }
+    }
+    /* ===== 积分卡结束 ===== */
+
+    /* ===== CosAI 主界面（三栏布局） ===== */
+    html, body {
+      margin: 0; padding: 0;
+      height: 100%; width: 100%;
+      overflow: hidden;
+    }
+    #cosai-main-ui {
+      display: flex;
+      width: 100%;
+      height: 100%;
+      background: linear-gradient(135deg, #0f0d1f 0%, #1a1033 50%, #1a0b2e 100%);
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+      color: #e0e7ff;
+      overflow: hidden;
+      position: relative;
+      z-index: 1;
+    }
+
+    /* 左侧图标栏 */
+    .cosai-sidebar {
+      width: 56px;
+      flex-shrink: 0;
+      background: rgba(15, 10, 30, 0.8);
+      border-right: 1px solid rgba(139, 92, 246, 0.15);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 12px 0;
+      gap: 6px;
+    }
+    .cosai-sidebar-logo {
+      width: 36px; height: 36px;
+      background: linear-gradient(135deg, #8b5cf6, #ec4899);
+      border-radius: 10px;
+      display: flex; align-items: center; justify-content: center;
+      margin-bottom: 4px;
+      box-shadow: 0 2px 10px rgba(139, 92, 246, 0.4);
+    }
+    .cosai-logo-text {
+      font-size: 18px; font-weight: 800; color: #fff;
+      font-style: italic;
+    }
+    .cosai-sidebar-divider {
+      width: 28px; height: 1px;
+      background: rgba(139, 92, 246, 0.2);
+      margin: 4px 0 8px;
+    }
+    .cosai-sidebar-btn {
+      width: 44px; height: 44px;
+      background: transparent;
+      border: none;
+      border-radius: 10px;
+      color: rgba(148, 163, 184, 0.6);
+      cursor: pointer;
+      display: flex; align-items: center; justify-content: center;
+      transition: all 0.2s ease;
+      position: relative;
+      -webkit-appearance: none;
+      appearance: none;
+      outline: none;
+    }
+    .cosai-sidebar-btn svg {
+      width: 22px; height: 22px;
+      stroke-width: 1.8;
+      pointer-events: none;
+    }
+    .cosai-sidebar-btn:hover {
+      background: rgba(139, 92, 246, 0.18);
+      color: #ddd6fe;
+      transform: scale(1.05);
+    }
+    .cosai-sidebar-btn:active {
+      transform: scale(0.95);
+    }
+    .cosai-sidebar-btn:focus-visible {
+      box-shadow: 0 0 0 2px rgba(139, 92, 246, 0.5);
+    }
+    .cosai-sidebar-btn.active {
+      background: linear-gradient(135deg, rgba(139, 92, 246, 0.35), rgba(236, 72, 153, 0.25));
+      color: #fff;
+      box-shadow: 0 4px 12px rgba(139, 92, 246, 0.3);
+    }
+    .cosai-sidebar-btn.active::before {
+      content: '';
+      position: absolute;
+      left: -12px; top: 50%;
+      transform: translateY(-50%);
+      width: 3px; height: 22px;
+      background: linear-gradient(180deg, #8b5cf6, #ec4899);
+      border-radius: 0 2px 2px 0;
+      box-shadow: 0 0 6px rgba(139, 92, 246, 0.6);
+    }
+    .cosai-sidebar-spacer {
+      flex: 1;
+    }
+
+    /* 可拖动分隔线 */
+    .cosai-divider {
+      width: 6px;
+      flex-shrink: 0;
+      cursor: col-resize;
+      background: transparent;
+      position: relative;
+      transition: background 0.15s;
+      z-index: 10;
+    }
+    .cosai-divider::before {
+      content: '';
+      position: absolute;
+      left: 50%;
+      top: 50%;
+      transform: translate(-50%, -50%);
+      width: 3px;
+      height: 48px;
+      background: rgba(139, 92, 246, 0.25);
+      border-radius: 2px;
+      transition: all 0.2s ease;
+    }
+    .cosai-divider:hover,
+    .cosai-divider.dragging {
+      background: rgba(139, 92, 246, 0.1);
+    }
+    .cosai-divider:hover::before,
+    .cosai-divider.dragging::before {
+      width: 4px;
+      height: 64px;
+      background: linear-gradient(180deg, #8b5cf6, #ec4899);
+      box-shadow: 0 0 8px rgba(139, 92, 246, 0.5);
+    }
+    .cosai-divider:active::before {
+      transform: translate(-50%, -50%) scaleX(1.2);
+    }
+
+    /* 中间主面板 */
+    .cosai-main-panel {
+      flex: 1;
+      min-width: 0;
+      overflow-y: auto;
+      overflow-x: hidden;
+      padding: 20px 24px;
+      scrollbar-width: thin;
+      scrollbar-color: rgba(139, 92, 246, 0.3) transparent;
+      -webkit-overflow-scrolling: touch;
+      scroll-behavior: smooth;
+    }
+    .cosai-main-panel::-webkit-scrollbar { width: 6px; }
+    .cosai-main-panel::-webkit-scrollbar-track { background: transparent; }
+    .cosai-main-panel::-webkit-scrollbar-thumb {
+      background: rgba(139, 92, 246, 0.3);
+      border-radius: 3px;
+    }
+
+    .cosai-panel {
+      max-width: 480px;
+      margin: 0 auto;
+      animation: cosai-fade-in 0.25s ease-out;
+    }
+    @keyframes cosai-fade-in {
+      from { opacity: 0; transform: translateY(6px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    .cosai-panel-header {
+      margin-bottom: 20px;
+    }
+    .cosai-panel-title {
+      font-size: 22px; font-weight: 700;
+      margin: 0;
+      display: flex; align-items: center; gap: 10px;
+      background: linear-gradient(135deg, #fff 0%, #ddd6fe 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+      letter-spacing: -0.3px;
+    }
+    .cosai-panel-title-icon { font-size: 24px; }
+    .cosai-panel-subtitle {
+      font-size: 12px; color: rgba(148, 163, 184, 0.6);
+      margin: 4px 0 0 34px;
+    }
+
+    /* 参考图区域 */
+    .cosai-ref-area {
+      margin-bottom: 18px;
+    }
+    .cosai-ref-label {
+      display: flex; align-items: center; justify-content: space-between;
+      font-size: 12px; font-weight: 500;
+      color: rgba(196, 181, 253, 0.8);
+      margin-bottom: 8px;
+    }
+    .cosai-ref-hint {
+      font-size: 10px; color: rgba(148, 163, 184, 0.5);
+      font-weight: 400;
+    }
+    .cosai-ref-box {
+      position: relative;
+      width: 100%;
+      aspect-ratio: 16 / 10;
+      background: rgba(15, 23, 42, 0.4);
+      border: 2px dashed rgba(139, 92, 246, 0.25);
+      border-radius: 12px;
+      overflow: hidden;
+      margin-bottom: 10px;
+      transition: border-color 0.2s;
+    }
+    .cosai-ref-placeholder {
+      width: 100%; height: 100%;
+      display: flex; flex-direction: column;
+      align-items: center; justify-content: center;
+      gap: 8px;
+      color: rgba(148, 163, 184, 0.4);
+    }
+    .cosai-ref-placeholder span {
+      font-size: 12px;
+    }
+    .cosai-ref-img {
+      width: 100%; height: 100%;
+      object-fit: contain;
+    }
+    .cosai-ref-remove {
+      position: absolute; top: 8px; right: 8px;
+      width: 26px; height: 26px;
+      background: rgba(0, 0, 0, 0.6);
+      border: none; border-radius: 50%;
+      color: #fff; cursor: pointer;
+      display: flex; align-items: center; justify-content: center;
+      transition: background 0.15s;
+    }
+    .cosai-ref-remove:hover { background: rgba(220, 38, 38, 0.8); }
+
+    /* 按钮通用 */
+    .cosai-btn {
+      display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+      padding: 9px 14px;
+      border-radius: 8px;
+      font-size: 12px; font-weight: 500;
+      cursor: pointer;
+      border: none;
+      font-family: inherit;
+      transition: all 0.15s;
+    }
+    .cosai-btn--full { width: 100%; }
+    .cosai-btn--ghost {
+      background: rgba(15, 23, 42, 0.5);
+      border: 1px solid rgba(139, 92, 246, 0.25);
+      color: #c4b5fd;
+    }
+    .cosai-btn--ghost:hover {
+      background: rgba(30, 27, 75, 0.7);
+      border-color: rgba(167, 139, 250, 0.4);
+    }
+    .cosai-btn--primary {
+      background: linear-gradient(135deg, #8b5cf6, #ec4899);
+      color: #fff;
+      font-weight: 600;
+      box-shadow: 0 4px 12px rgba(139, 92, 246, 0.35);
+    }
+    .cosai-btn--primary:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 6px 16px rgba(139, 92, 246, 0.45);
+    }
+    .cosai-btn--secondary {
+      background: rgba(15, 23, 42, 0.5);
+      border: 1px solid rgba(139, 92, 246, 0.25);
+      color: #c4b5fd;
+    }
+    .cosai-btn--secondary:hover {
+      background: rgba(30, 27, 75, 0.7);
+      border-color: rgba(167, 139, 250, 0.4);
+    }
+    .cosai-btn:disabled {
+      opacity: 0.5; cursor: not-allowed;
+      transform: none !important;
+    }
+
+    /* 表单区域 */
+    .cosai-form-section {
+      margin-bottom: 16px;
+    }
+    .cosai-form-label {
+      display: flex; align-items: center; justify-content: space-between;
+      font-size: 12px; font-weight: 500;
+      color: rgba(196, 181, 253, 0.8);
+      margin-bottom: 6px;
+    }
+    .cosai-form-count {
+      font-size: 10px; color: rgba(148, 163, 184, 0.5);
+      font-weight: 400;
+    }
+    .cosai-prompt-input {
+      width: 100%; box-sizing: border-box;
+      background: rgba(15, 23, 42, 0.5);
+      border: 1px solid rgba(139, 92, 246, 0.2);
+      color: #e0e7ff;
+      padding: 10px 12px;
+      border-radius: 8px;
+      font-size: 12px;
+      font-family: inherit;
+      line-height: 1.5;
+      resize: vertical;
+      transition: border-color 0.2s, box-shadow 0.2s;
+    }
+    .cosai-prompt-input:focus {
+      outline: none;
+      border-color: #a78bfa;
+      box-shadow: 0 0 0 3px rgba(167, 139, 250, 0.1);
+    }
+    .cosai-prompt-input::placeholder { color: rgba(148, 163, 184, 0.35); }
+
+    /* 预设标签 */
+    .cosai-preset-tags {
+      display: flex; flex-wrap: wrap; gap: 6px;
+    }
+    .cosai-preset-tag {
+      padding: 5px 10px;
+      background: rgba(15, 23, 42, 0.4);
+      border: 1px solid rgba(139, 92, 246, 0.18);
+      border-radius: 14px;
+      font-size: 11px;
+      color: #c4b5fd;
+      cursor: pointer;
+      font-family: inherit;
+      transition: all 0.15s;
+      white-space: nowrap;
+    }
+    .cosai-preset-tag:hover {
+      background: rgba(139, 92, 246, 0.18);
+      border-color: rgba(167, 139, 250, 0.35);
+      transform: translateY(-1px);
+    }
+    .cosai-preset-tag.active {
+      background: linear-gradient(135deg, rgba(139, 92, 246, 0.3), rgba(236, 72, 153, 0.2));
+      border-color: rgba(167, 139, 250, 0.5);
+      color: #fff;
+      box-shadow: 0 2px 8px rgba(139, 92, 246, 0.2);
+    }
+
+    /* 参数行 */
+    .cosai-param-row {
+      display: grid;
+      grid-template-columns: 1fr 1fr 1fr;
+      gap: 8px;
+      margin-bottom: 18px;
+    }
+    .cosai-param-item {
+      display: flex; flex-direction: column; gap: 4px;
+    }
+    .cosai-param-label {
+      font-size: 10px; color: rgba(148, 163, 184, 0.6);
+      font-weight: 500;
+    }
+    .cosai-param-select {
+      width: 100%; box-sizing: border-box;
+      background: rgba(15, 23, 42, 0.5);
+      border: 1px solid rgba(139, 92, 246, 0.18);
+      color: #ddd6fe;
+      padding: 7px 8px;
+      border-radius: 6px;
+      font-size: 11px;
+      font-family: inherit;
+      cursor: pointer;
+      transition: border-color 0.15s;
+    }
+    .cosai-param-select:focus {
+      outline: none; border-color: #a78bfa;
+    }
+
+    /* 生成按钮 */
+    .cosai-generate-btn {
+      width: 100%;
+      display: flex; align-items: center; justify-content: center; gap: 8px;
+      padding: 14px 16px;
+      background: linear-gradient(135deg, #8b5cf6, #ec4899);
+      border: none;
+      border-radius: 10px;
+      color: #fff;
+      font-size: 14px; font-weight: 700;
+      cursor: pointer;
+      font-family: inherit;
+      transition: all 0.2s;
+      box-shadow: 0 4px 16px rgba(139, 92, 246, 0.4),
+                  0 1px 0 rgba(255, 255, 255, 0.15) inset;
+    }
+    .cosai-generate-btn:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 6px 20px rgba(139, 92, 246, 0.5),
+                  0 1px 0 rgba(255, 255, 255, 0.2) inset;
+    }
+    .cosai-generate-btn:active { transform: translateY(0); }
+    .cosai-generate-btn:disabled {
+      opacity: 0.5; cursor: not-allowed;
+      transform: none !important;
+    }
+
+    /* 进度条 */
+    .cosai-progress {
+      margin-top: 12px;
+      display: flex; flex-direction: column; gap: 6px;
+    }
+    .cosai-progress-bar {
+      width: 100%; height: 4px;
+      background: rgba(15, 23, 42, 0.4);
+      border-radius: 2px;
+      overflow: hidden;
+    }
+    .cosai-progress-fill {
+      height: 100%;
+      background: linear-gradient(90deg, #8b5cf6, #ec4899);
+      border-radius: 2px;
+      transition: width 0.3s ease;
+    }
+    .cosai-progress-text {
+      font-size: 10px; color: rgba(196, 181, 253, 0.6);
+      text-align: center;
+    }
+
+    /* 配置面板输入框 */
+    .cosai-input {
+      width: 100%; box-sizing: border-box;
+      background: rgba(15, 23, 42, 0.5);
+      border: 1px solid rgba(139, 92, 246, 0.2);
+      color: #e0e7ff;
+      padding: 9px 12px;
+      border-radius: 8px;
+      font-size: 12px;
+      font-family: inherit;
+      transition: border-color 0.2s, box-shadow 0.2s;
+    }
+    .cosai-input:focus {
+      outline: none;
+      border-color: #a78bfa;
+      box-shadow: 0 0 0 3px rgba(167, 139, 250, 0.1);
+    }
+    .cosai-input::placeholder { color: rgba(148, 163, 184, 0.35); }
+    .cosai-input-wrap {
+      position: relative;
+    }
+    .cosai-input-wrap .cosai-input {
+      padding-right: 38px;
+    }
+    .cosai-input-toggle {
+      position: absolute; right: 8px; top: 50%;
+      transform: translateY(-50%);
+      background: none; border: none;
+      color: rgba(148, 163, 184, 0.5);
+      cursor: pointer; padding: 4px;
+      display: flex; align-items: center; justify-content: center;
+      border-radius: 4px;
+      transition: color 0.2s;
+    }
+    .cosai-input-toggle:hover { color: #a5b4fc; }
+
+    .cosai-action-row {
+      display: flex; gap: 8px;
+      margin: 16px 0 12px;
+    }
+    .cosai-action-row .cosai-btn {
+      flex: 1;
+    }
+    .cosai-status {
+      padding: 8px 12px;
+      background: rgba(15, 23, 42, 0.4);
+      border-radius: 6px;
+      font-size: 11px;
+      color: rgba(196, 181, 253, 0.6);
+      text-align: center;
+      border: 1px solid rgba(139, 92, 246, 0.12);
+      line-height: 1.5;
+      white-space: pre-wrap;
+    }
+    .cosai-status.success {
+      color: #34d399;
+      border-color: rgba(52, 211, 153, 0.25);
+      background: rgba(6, 78, 59, 0.25);
+    }
+    .cosai-status.error {
+      color: #f87171;
+      border-color: rgba(248, 113, 113, 0.25);
+      background: rgba(127, 29, 29, 0.25);
+    }
+    .cosai-status.loading {
+      color: #fbbf24;
+      border-color: rgba(251, 191, 36, 0.25);
+      background: rgba(120, 53, 15, 0.25);
+    }
+
+    /* 工具卡片 */
+    .cosai-tools-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+    }
+    .cosai-tool-card {
+      display: flex; flex-direction: column;
+      align-items: center; justify-content: center;
+      gap: 8px;
+      padding: 20px 12px;
+      background: linear-gradient(145deg, rgba(15, 23, 42, 0.5), rgba(30, 27, 75, 0.3));
+      border: 1px solid rgba(139, 92, 246, 0.2);
+      border-radius: 12px;
+      cursor: pointer;
+      font-family: inherit;
+      transition: all 0.2s ease;
+      position: relative;
+      overflow: hidden;
+    }
+    .cosai-tool-card::before {
+      content: '';
+      position: absolute;
+      top: 0; left: 0; right: 0;
+      height: 2px;
+      background: linear-gradient(90deg, transparent, rgba(139, 92, 246, 0.5), transparent);
+      opacity: 0;
+      transition: opacity 0.2s;
+    }
+    .cosai-tool-card:hover {
+      background: linear-gradient(145deg, rgba(30, 27, 75, 0.7), rgba(49, 27, 104, 0.5));
+      border-color: rgba(167, 139, 250, 0.4);
+      transform: translateY(-2px);
+      box-shadow: 0 8px 24px rgba(139, 92, 246, 0.15);
+    }
+    .cosai-tool-card:hover::before {
+      opacity: 1;
+    }
+    .cosai-tool-card:active {
+      transform: translateY(0);
+    }
+    .cosai-tool-card:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+      transform: none !important;
+    }
+    .cosai-tool-icon {
+      font-size: 28px;
+      line-height: 1;
+    }
+    .cosai-tool-name {
+      font-size: 12px; color: #e0e7ff;
+      font-weight: 600;
+      letter-spacing: 0.2px;
+    }
+
+    /* 日志面板 */
+    .cosai-log-box {
+      background: rgba(0, 0, 0, 0.3);
+      border: 1px solid rgba(139, 92, 246, 0.15);
+      border-radius: 8px;
+      padding: 10px 12px;
+      height: 300px;
+      overflow-y: auto;
+      font-family: 'SF Mono', 'Menlo', monospace;
+      font-size: 11px;
+      line-height: 1.6;
+      color: #94a3b8;
+    }
+    .cosai-log-empty {
+      text-align: center;
+      color: rgba(148, 163, 184, 0.4);
+      padding: 40px 0;
+    }
+
+    /* 调用反馈区 */
+    .cosai-feedback {
+      margin-top: 12px;
+      background: rgba(8, 10, 20, 0.45);
+      border: 1px solid rgba(139, 92, 246, 0.18);
+      border-radius: 10px;
+      overflow: hidden;
+    }
+    .cosai-feedback-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 7px 12px;
+      background: rgba(139, 92, 246, 0.08);
+      border-bottom: 1px solid rgba(139, 92, 246, 0.12);
+    }
+    .cosai-feedback-title {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 11px;
+      font-weight: 600;
+      color: #c4b5fd;
+      letter-spacing: 0.3px;
+    }
+    .cosai-feedback-title-icon {
+      font-size: 12px;
+    }
+    .cosai-feedback-clear {
+      background: transparent;
+      border: 1px solid rgba(148, 163, 184, 0.25);
+      color: rgba(148, 163, 184, 0.85);
+      font-size: 10px;
+      padding: 2px 8px;
+      border-radius: 5px;
+      cursor: pointer;
+      transition: all .15s;
+      font-family: inherit;
+    }
+    .cosai-feedback-clear:hover {
+      border-color: rgba(139, 92, 246, 0.6);
+      color: #e0e7ff;
+    }
+    .cosai-feedback-body {
+      padding: 6px 10px;
+      max-height: 150px;
+      overflow-y: auto;
+      font-family: 'SF Mono', 'Menlo', monospace;
+      font-size: 10.5px;
+      line-height: 1.6;
+    }
+    .cosai-feedback-empty {
+      text-align: center;
+      color: rgba(148, 163, 184, 0.4);
+      padding: 14px 0;
+      font-family: inherit;
+    }
+    .cosai-fb-row {
+      display: flex;
+      gap: 8px;
+      align-items: flex-start;
+      padding: 2px 0;
+      border-bottom: 1px dashed rgba(139, 92, 246, 0.06);
+    }
+    .cosai-fb-time {
+      color: rgba(148, 163, 184, 0.5);
+      flex-shrink: 0;
+      white-space: nowrap;
+      padding-top: 1px;
+    }
+    .cosai-fb-msg {
+      flex: 1;
+      word-break: break-all;
+      white-space: pre-wrap;
+    }
+    .cosai-fb-info .cosai-fb-msg { color: #a5b4fc; }
+    .cosai-fb-ok .cosai-fb-msg { color: #6ee7b7; }
+    .cosai-fb-warn .cosai-fb-line,
+    .cosai-fb-warn .cosai-fb-msg { color: #fbbf24; }
+    .cosai-fb-error .cosai-fb-line,
+    .cosai-fb-error .cosai-fb-msg { color: #f87171; }
+    .cosai-fb-row .cosai-fb-line { color: inherit; }
+
+    /* 右侧返图区（内嵌在主面板底部栏目） */
+    .cosai-result-panel {
+      margin-top: 18px;
+      background: rgba(15, 10, 30, 0.45);
+      border: 1px solid rgba(139, 92, 246, 0.14);
+      border-radius: 14px;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+    .cosai-result-header {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 14px 16px 10px;
+      border-bottom: 1px solid rgba(139, 92, 246, 0.1);
+    }
+    .cosai-result-title {
+      display: flex; align-items: center; gap: 6px;
+      font-size: 13px; font-weight: 600;
+      color: #e0e7ff;
+    }
+    .cosai-result-icon { font-size: 15px; }
+    .cosai-result-count {
+      background: linear-gradient(135deg, #8b5cf6, #ec4899);
+      color: #fff;
+      font-size: 10px; font-weight: 600;
+      padding: 2px 8px;
+      border-radius: 10px;
+      min-width: 18px;
+      text-align: center;
+    }
+    .cosai-result-body {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 14px;
+      overflow: hidden;
+      min-height: 220px;
+      max-height: 360px;
+      background: rgba(0, 0, 0, 0.18);
+    }
+    .cosai-result-empty {
+      text-align: center;
+      color: rgba(148, 163, 184, 0.4);
+    }
+    .cosai-result-empty-icon {
+      font-size: 36px;
+      opacity: 0.5;
+      margin-bottom: 8px;
+    }
+    .cosai-result-empty-text {
+      font-size: 12px;
+      color: rgba(196, 181, 253, 0.5);
+    }
+    .cosai-result-empty-hint {
+      font-size: 10px;
+      margin-top: 4px;
+      opacity: 0.7;
+    }
+    .cosai-result-main-img {
+      max-width: 100%;
+      max-height: 100%;
+      object-fit: contain;
+      border-radius: 6px;
+      box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
+    }
+    .cosai-result-thumbs {
+      display: flex;
+      gap: 6px;
+      padding: 10px 12px;
+      overflow-x: auto;
+      border-top: 1px solid rgba(139, 92, 246, 0.08);
+      scrollbar-width: thin;
+    }
+    .cosai-result-thumbs::-webkit-scrollbar { height: 4px; }
+    .cosai-result-thumbs::-webkit-scrollbar-thumb {
+      background: rgba(139, 92, 246, 0.3);
+      border-radius: 2px;
+    }
+    .cosai-result-thumb {
+      flex-shrink: 0;
+      width: 44px; height: 44px;
+      border-radius: 4px;
+      overflow: hidden;
+      cursor: pointer;
+      border: 2px solid transparent;
+      background: rgba(0, 0, 0, 0.2);
+      transition: all 0.15s;
+    }
+    .cosai-result-thumb:hover {
+      border-color: rgba(139, 92, 246, 0.4);
+    }
+    .cosai-result-thumb.active {
+      border-color: #8b5cf6;
+    }
+    .cosai-result-thumb img {
+      width: 100%; height: 100%;
+      object-fit: cover;
+    }
+
+    /* 结果操作按钮 */
+    .cosai-result-actions {
+      display: flex;
+      gap: 6px;
+      padding: 0 12px 12px;
+    }
+    .cosai-result-action-btn {
+      flex: 1;
+      padding: 6px 8px;
+      font-size: 10px;
+      font-weight: 500;
+      border-radius: 6px;
+      border: 1px solid rgba(139, 92, 246, 0.2);
+      background: rgba(15, 23, 42, 0.4);
+      color: #c4b5fd;
+      cursor: pointer;
+      font-family: inherit;
+      transition: all 0.15s;
+      display: flex; align-items: center; justify-content: center; gap: 4px;
+    }
+    .cosai-result-action-btn:hover {
+      background: rgba(30, 27, 75, 0.6);
+      border-color: rgba(167, 139, 250, 0.35);
+    }
+    .cosai-result-action-btn--primary {
+      background: linear-gradient(135deg, #8b5cf6, #ec4899);
+      border-color: transparent;
+      color: #fff;
+      font-weight: 600;
+    }
+    .cosai-result-action-btn--primary:hover {
+      filter: brightness(1.1);
+      border-color: transparent;
+    }
+    .cosai-result-action-btn--danger {
+      padding: 6px 10px;
+      flex: 0 0 auto;
+      color: #f87171;
+      border-color: rgba(239, 68, 68, 0.2);
+    }
+    .cosai-result-action-btn--danger:hover {
+      background: rgba(239, 68, 68, 0.15);
+      border-color: rgba(239, 68, 68, 0.4);
+    }
+
+    /* 保存状态提示 */
+    .cosai-result-saved-info {
+      padding: 4px 10px;
+      margin: 0 12px 8px;
+      background: rgba(16, 185, 129, 0.1);
+      border: 1px solid rgba(16, 185, 129, 0.2);
+      border-radius: 6px;
+      font-size: 10px;
+      color: #34d399;
+      text-align: center;
+    }
+
     #cosai-toolbox {
       position: fixed; top: 0; left: 0; right: 0; z-index: 999998;
       background: linear-gradient(180deg, rgba(26,26,46,.98), rgba(26,26,46,.9));
@@ -114,6 +1418,98 @@
       width: 1px; height: 16px; background: #334155; margin: 0 2px;
     }
     #root { padding-top: 38px; }
+
+    /* 全局 Toast 提示 */
+    .cosai-toast {
+      position: fixed;
+      top: 54px;
+      left: 50%;
+      transform: translate(-50%, 0);
+      background: rgba(15, 23, 42, 0.96);
+      color: #e2e8f0;
+      border: 1px solid rgba(139, 92, 246, 0.35);
+      border-radius: 10px;
+      padding: 8px 18px;
+      font-size: 11px;
+      font-weight: 500;
+      font-family: -apple-system, BlinkMacSystemFont, 'PingFang SC', sans-serif;
+      box-shadow: 0 8px 30px rgba(0, 0, 0, 0.5);
+      opacity: 1;
+      transition: opacity .3s, transform .3s;
+      pointer-events: none;
+      z-index: 9999990;
+      max-width: 85%;
+      text-align: center;
+      white-space: pre-wrap;
+      word-break: break-all;
+    }
+    .cosai-toast--success {
+      border-color: rgba(16, 185, 129, 0.45);
+      color: #6ee7b7;
+    }
+    .cosai-toast--warning {
+      border-color: rgba(251, 191, 36, 0.5);
+      color: #fbbf24;
+    }
+    .cosai-toast--error {
+      border-color: rgba(239, 68, 68, 0.5);
+      color: #fca5a5;
+    }
+    /* 任务队列 */
+    .cosai-task-panel {
+      margin-top: 14px;
+      border: 1px solid rgba(148, 163, 184, 0.16);
+      border-radius: 14px;
+      background: rgba(148, 163, 184, 0.05);
+      padding: 10px 12px;
+    }
+    .cosai-task-head {
+      display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px;
+    }
+    .cosai-task-title {
+      font-size: 12px; font-weight: 600; color: #e2e8f0;
+      display: inline-flex; align-items: center; gap: 6px;
+    }
+    .cosai-task-count { font-size: 10px; color: #94a3b8; }
+    .cosai-task-list { display: flex; flex-direction: column; gap: 8px; max-height: 240px; overflow-y: auto; }
+    .cosai-task-item {
+      background: rgba(15, 23, 42, 0.5);
+      border: 1px solid rgba(148, 163, 184, 0.14);
+      border-radius: 10px;
+      padding: 8px 10px;
+      display: flex; gap: 8px;
+    }
+    .cosai-task-item.running { border-color: rgba(56, 130, 246, 0.5); }
+    .cosai-task-item.done { border-color: rgba(16, 185, 129, 0.35); }
+    .cosai-task-item.error { border-color: rgba(239, 68, 68, 0.5); }
+    .cosai-task-idx { font-size: 10px; color: #60a5fa; font-weight: 700; line-height: 18px; flex: 0 0 auto; }
+    .cosai-task-body { flex: 1 1 auto; min-width: 0; }
+    .cosai-task-main { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+    .cosai-task-prompt {
+      font-size: 11px; color: #cbd5e1; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; flex: 1 1 auto;
+    }
+    .cosai-task-badge { font-size: 9px; padding: 2px 7px; border-radius: 99px; white-space: nowrap; flex: 0 0 auto; }
+    .cosai-task-badge.pending { background: rgba(148, 163, 184, 0.18); color: #94a3b8; }
+    .cosai-task-badge.running { background: rgba(56, 130, 246, 0.2); color: #60a5fa; }
+    .cosai-task-badge.done { background: rgba(16, 185, 129, 0.18); color: #34d399; }
+    .cosai-task-badge.error { background: rgba(239, 68, 68, 0.18); color: #f87171; }
+    .cosai-task-sub { font-size: 9px; color: #64748b; margin: 3px 0 5px; }
+    .cosai-task-bar { height: 4px; background: rgba(148, 163, 184, 0.15); border-radius: 99px; overflow: hidden; }
+    .cosai-task-bar-fill {
+      height: 100%; background: linear-gradient(90deg, #0a84ff, #38bdf8);
+      border-radius: 99px; transition: width .3s;
+    }
+    .cosai-task-item.error .cosai-task-bar-fill { background: #ef4444; }
+    /* 运行日志行（分级着色） */
+    .cosai-log-line {
+      font-size: 9px; line-height: 1.5; color: #8fa3bf;
+      font-family: ui-monospace, Menlo, monospace;
+      white-space: pre-wrap; word-break: break-all;
+    }
+    .cosai-log-level-error { color: #f87171; }
+    .cosai-log-level-warn { color: #fbbf24; }
+    .cosai-log-level-info { color: #93c5fd; }
+    .cosai-log-level-debug { color: #64748b; }
   </style>
   <script>
     // ===== 调试系统（确保 document 未就绪时也能工作）=====
@@ -336,9 +1732,21 @@
           });
         },
         pastePixels: function (base64) {
-          return callHost('placeLayerFromBase64', { base64: base64, name: 'AI 生成' });
+          return callHost('placeImage', { base64: base64, name: 'AI 生成', mode: 'newLayer' });
         },
+        placeImage: function (base64, mode, name) {
+          return callHost('placeImage', { base64: base64, name: name || 'AI 生成结果', mode: mode || 'newLayer' });
+        },
+        saveImageToLocal: function (base64, fileName) {
+          return callHost('saveImageToLocal', { base64: base64, fileName: fileName });
+        },
+        readKeyConfig: function () { return callHost('readKeyConfig'); },
+        saveKeyConfig: function (cfg) { return callHost('saveKeyConfig', cfg || {}); },
+        clearKeyConfig: function () { return callHost('clearKeyConfig'); },
         getSelectionBounds: function () { return callHost('getSelectionBounds'); },
+        appendLog: function (entries) { return callHost('appendLog', { entries: entries || [] }); },
+        listLogs: function () { return callHost('listLogs'); },
+        clearLogs: function (dateStr) { return callHost('clearLogs', { dateStr: dateStr || '' }); },
         showAlert: function (m) { window.__dbg('alert: ' + m); return Promise.resolve({ success: true }); },
         undo: function () { return callHost('undo', { steps: 1 }); },
         redo: function () { return callHost('redo', { steps: 1 }); },
@@ -492,71 +1900,1639 @@
     <div style="display:flex;align-items:center;justify-content:center;width:100%;height:100%;color:#a78bfa;font-family:sans-serif;font-size:14px;">CosAI 加载中...</div>
   </div>
 
-  <!-- 浮动工具箱（顶部） -->
-  <div id="cosai-toolbox" style="display:none;">
-    <span class="tb-title">CosAI 工具箱</span>
-    <button class="tb-btn" id="tb-freq">高低频</button>
-    <button class="tb-btn" id="tb-curves">双曲线</button>
-    <button class="tb-btn" id="tb-glow">辉光</button>
-    <div class="tb-sep"></div>
-    <button class="tb-btn" id="tb-getimg" style="background:#0369a1;">获取图片</button>
-    <button class="tb-btn" id="tb-result" style="background:#be185d;">✨返图</button>
-    <div class="tb-sep"></div>
-    <button class="tb-btn" id="tb-aitest" style="background:#047857;">AI测试</button>
-    <button class="tb-btn" id="tb-dbg" style="background:#334155;">日志</button>
-    <span class="tb-status" id="tb-status">就绪</span>
-  </div>
+  <!-- CosAI 主界面（HHPS 风格三栏布局） -->
+  <div id="cosai-main-ui" style="display:none;">
+    <!-- 左侧图标栏 -->
+    <div class="cosai-sidebar">
+      <div class="cosai-sidebar-logo">
+        <span class="cosai-logo-text">C</span>
+      </div>
+      <div class="cosai-sidebar-divider"></div>
+      <button class="cosai-sidebar-btn active" data-panel="draw" title="闭源大模型">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M12 19l7-7 3 3-7 7-3-3z"/>
+          <path d="M18 13l-1.5-7.5L2 2l3.5 14.5L13 18l5-5z"/>
+          <path d="M2 2l7.586 7.586"/>
+          <circle cx="11" cy="11" r="2"/>
+        </svg>
+      </button>
+      <button class="cosai-sidebar-btn" data-panel="config" title="模型配置">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/>
+          <circle cx="12" cy="12" r="3"/>
+        </svg>
+      </button>
+      <button class="cosai-sidebar-btn" data-panel="tools" title="修图工具">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/>
+        </svg>
+      </button>
+      <div class="cosai-sidebar-spacer"></div>
+      <button class="cosai-sidebar-btn" data-panel="logs" title="日志">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+          <polyline points="14 2 14 8 20 8"/>
+          <line x1="8" y1="13" x2="16" y2="13"/>
+          <line x1="8" y1="17" x2="16" y2="17"/>
+          <line x1="8" y1="9" x2="10" y2="9"/>
+        </svg>
+      </button>
+    </div>
 
-  <!-- 返图区域面板（右侧浮动） -->
-  <div id="cosai-result-panel-wrap" style="display:none;position:fixed;top:44px;right:4px;bottom:120px;width:260px;z-index:999997;pointer-events:none;">
-    <div id="cosai-result-area" style="pointer-events:auto;"></div>
-  </div>
+    <!-- 左侧可拖动分隔线 -->
+    <div class="cosai-divider cosai-divider--left" id="cosai-divider-left"></div>
 
-  <!-- AI 连通性测试面板 -->
-  <div id="cosai-ai-test-panel">
-    <button class="close-btn" id="aitest-close">&times;</button>
-    <h3>🔬 AI API 连通性测试</h3>
-    <div class="row">
-      <label>提供商</label>
-      <select id="aitest-provider">
-        <option value="grs">GRS（OpenAI 兼容，国内直连）</option>
-        <option value="gemini">Gemini（原生格式）</option>
-        <option value="openai">OpenAI 兼容格式（通用）</option>
-      </select>
+    <!-- 中间主面板 -->
+    <div class="cosai-main-panel" id="cosai-main-panel">
+      <!-- AI 绘图面板（默认显示） -->
+      <div class="cosai-panel cosai-panel--draw" data-panel-body="draw">
+        <div class="cosai-panel-header">
+          <h2 class="cosai-panel-title">
+            <span class="cosai-panel-title-icon">🎨</span>
+            闭源大模型
+          </h2>
+          <p class="cosai-panel-subtitle">文生图 / 图生图 · Nano Banana Pro</p>
+        </div>
+
+        <!-- 参考图区域 -->
+        <div class="cosai-ref-area">
+          <div class="cosai-ref-label">
+            <span>参考图</span>
+            <span class="cosai-ref-hint">不传图则为纯文生图</span>
+          </div>
+          <div class="cosai-ref-box" id="cosai-ref-box">
+            <div class="cosai-ref-placeholder" id="cosai-ref-placeholder">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" width="36" height="36">
+                <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/>
+                <circle cx="8.5" cy="8.5" r="1.5"/>
+                <polyline points="21 15 16 10 5 21"/>
+              </svg>
+              <span>暂无参考图</span>
+            </div>
+            <img class="cosai-ref-img" id="cosai-ref-img" style="display:none;" alt="参考图"/>
+            <button class="cosai-ref-remove" id="cosai-ref-remove" style="display:none;" title="移除">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">
+                <line x1="18" y1="6" x2="6" y2="18"/>
+                <line x1="6" y1="6" x2="18" y2="18"/>
+              </svg>
+            </button>
+          </div>
+          <button class="cosai-btn cosai-btn--ghost cosai-btn--full" id="cosai-get-canvas">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16">
+              <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/>
+              <circle cx="8.5" cy="8.5" r="1.5"/>
+              <polyline points="21 15 16 10 5 21"/>
+            </svg>
+            从画布取参考图
+          </button>
+        </div>
+
+        <!-- 提示词 -->
+        <div class="cosai-form-section">
+          <div class="cosai-form-label">
+            <span>提示词</span>
+            <span class="cosai-form-count" id="cosai-prompt-count">0 字</span>
+          </div>
+          <textarea class="cosai-prompt-input" id="cosai-prompt"
+            placeholder="描述你想要生成的画面，例如：一只可爱的橘猫坐在窗台上，阳光洒落，高清摄影风格"
+            rows="4"></textarea>
+        </div>
+
+        <!-- 预设标签 -->
+        <div class="cosai-form-section">
+          <div class="cosai-form-label"><span>风格预设</span></div>
+          <div class="cosai-preset-tags">
+            <button class="cosai-preset-tag" data-preset="portrait">📸 人像</button>
+            <button class="cosai-preset-tag" data-preset="anime">🎨 动漫</button>
+            <button class="cosai-preset-tag" data-preset="product">📦 产品</button>
+            <button class="cosai-preset-tag" data-preset="landscape">🏔️ 风景</button>
+            <button class="cosai-preset-tag" data-preset="cyberpunk">🌆 赛博</button>
+            <button class="cosai-preset-tag" data-preset="oil">🖼️ 油画</button>
+            <button class="cosai-preset-tag" data-preset="watercolor">💧 水彩</button>
+            <button class="cosai-preset-tag" data-preset="3d">🧊 3D</button>
+          </div>
+        </div>
+
+        <!-- 参数行 -->
+        <div class="cosai-param-row">
+          <div class="cosai-param-item">
+            <label class="cosai-param-label">模型</label>
+            <select class="cosai-param-select" id="cosai-model">
+              <option value="nano-banana-pro">nano-banana-pro</option>
+              <option value="nano-banana-fast">nano-banana-fast</option>
+              <option value="nano-banana-pro-vt">nano-banana-pro-vt</option>
+              <option value="nano-banana-pro-cl">nano-banana-pro-cl</option>
+              <option value="nano-banana-pro-vip">nano-banana-pro-vip</option>
+            </select>
+          </div>
+          <div class="cosai-param-item">
+            <label class="cosai-param-label">比例</label>
+            <select class="cosai-param-select" id="cosai-ratio">
+              <option value="auto">自动</option>
+              <option value="1:1">1:1</option>
+              <option value="16:9">16:9</option>
+              <option value="9:16">9:16</option>
+              <option value="4:3">4:3</option>
+              <option value="3:4">3:4</option>
+              <option value="3:2">3:2</option>
+            </select>
+          </div>
+          <div class="cosai-param-item">
+            <label class="cosai-param-label">画质</label>
+            <select class="cosai-param-select" id="cosai-size">
+              <option value="1K">1K</option>
+              <option value="2K">2K</option>
+              <option value="4K">4K</option>
+            </select>
+          </div>
+        </div>
+
+        <!-- 生成数 & 并发数 -->
+        <div class="cosai-param-row">
+          <div class="cosai-param-item">
+            <label class="cosai-param-label">生成张数</label>
+            <select class="cosai-param-select" id="cosai-count">
+              <option value="1" selected>1 张</option>
+              <option value="2">2 张</option>
+              <option value="4">4 张</option>
+            </select>
+          </div>
+          <div class="cosai-param-item">
+            <label class="cosai-param-label">并发数</label>
+            <select class="cosai-param-select" id="cosai-concurrent">
+              <option value="1">1</option>
+              <option value="2" selected>2</option>
+              <option value="3">3</option>
+            </select>
+          </div>
+        </div>
+
+        <!-- 生成按钮 -->
+        <button class="cosai-generate-btn" id="cosai-generate">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="20" height="20">
+            <polygon points="5 3 19 12 5 21 5 3"/>
+          </svg>
+          <span>立即生成</span>
+        </button>
+
+        <!-- 进度条 -->
+        <div class="cosai-progress" id="cosai-progress" style="display:none;">
+          <div class="cosai-progress-bar">
+            <div class="cosai-progress-fill" id="cosai-progress-fill" style="width:0%"></div>
+          </div>
+          <div class="cosai-progress-text" id="cosai-progress-text">准备中...</div>
+        </div>
+
+        <!-- 任务队列（并发生成） -->
+        <div class="cosai-task-panel" id="cosai-task-panel" style="display:none;">
+          <div class="cosai-task-head">
+            <span class="cosai-task-title">
+              <span class="cosai-task-icon">🗂️</span>
+              任务队列
+            </span>
+            <span class="cosai-task-count" id="cosai-task-count">0 个</span>
+          </div>
+          <div class="cosai-task-list" id="cosai-task-list"></div>
+        </div>
+
+        <!-- 调用反馈区 -->
+        <div class="cosai-feedback" id="cosai-feedback" style="display:none;">
+          <div class="cosai-feedback-head">
+            <span class="cosai-feedback-title">
+              <span class="cosai-feedback-title-icon">📡</span>
+              调用反馈
+            </span>
+            <button class="cosai-feedback-clear" id="cosai-feedback-clear" type="button" title="清空日志">清空</button>
+          </div>
+          <div class="cosai-feedback-body" id="cosai-feedback-body">
+            <div class="cosai-feedback-empty">暂无调用记录</div>
+          </div>
+        </div>
+
+        <!-- 生成结果区（仅第一页·闭源大模型展示） -->
+        <div class="cosai-result-panel" id="cosai-result-panel">
+          <div class="cosai-result-header">
+            <span class="cosai-result-title">
+              <span class="cosai-result-icon">🖼️</span>
+              生成结果
+            </span>
+            <span class="cosai-result-count" id="cosai-result-count">0</span>
+          </div>
+          <div class="cosai-result-body" id="cosai-result-body">
+            <div class="cosai-result-empty">
+              <div class="cosai-result-empty-icon">🖼️</div>
+              <div class="cosai-result-empty-text">暂无生成结果</div>
+              <div class="cosai-result-empty-hint">AI 生成后结果将显示在这里</div>
+            </div>
+          </div>
+          <div class="cosai-result-thumbs" id="cosai-result-thumbs"></div>
+        </div>
+      </div>
+
+      <!-- 模型配置面板 -->
+      <div class="cosai-panel cosai-panel--config" data-panel-body="config" style="display:none;">
+        <div class="cosai-panel-header">
+          <h2 class="cosai-panel-title">
+            <span class="cosai-panel-title-icon">⚙️</span>
+            模型配置
+          </h2>
+          <p class="cosai-panel-subtitle">GRS 视觉模型 · 国内直连</p>
+        </div>
+
+        <!-- 积分卡 -->
+        <div id="cosai-credit-card2" style="display:none;margin-bottom:14px;">
+          <!-- 积分卡内容将被动态填充 -->
+        </div>
+
+        <div class="cosai-form-section">
+          <div class="cosai-form-label"><span>API Key</span></div>
+          <div class="cosai-input-wrap">
+            <input type="password" id="cosai-apikey" placeholder="sk-xxxxxxxxxxxxxxxx" class="cosai-input" />
+            <button class="cosai-input-toggle" id="cosai-toggle-key">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16">
+                <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
+                <circle cx="12" cy="12" r="3"/>
+              </svg>
+            </button>
+          </div>
+        </div>
+
+        <div class="cosai-form-section">
+          <div class="cosai-form-label"><span>API 地址</span></div>
+          <input type="text" id="cosai-baseurl" value="https://grsai.dakka.com.cn" class="cosai-input" />
+        </div>
+
+        <div class="cosai-form-section">
+          <div class="cosai-form-label"><span>默认模型</span></div>
+          <input type="text" id="cosai-model-default" value="banana-pro" class="cosai-input" />
+        </div>
+
+        <div class="cosai-action-row">
+          <button class="cosai-btn cosai-btn--primary" id="cosai-save-config">保存配置</button>
+          <button class="cosai-btn cosai-btn--secondary" id="cosai-test-config">测试连接</button>
+        </div>
+
+        <div class="cosai-status" id="cosai-config-status">填写 API Key 后点击「保存配置」</div>
+      </div>
+
+      <!-- 修图工具面板 -->
+      <div class="cosai-panel cosai-panel--tools" data-panel-body="tools" style="display:none;">
+        <div class="cosai-panel-header">
+          <h2 class="cosai-panel-title">
+            <span class="cosai-panel-title-icon">🛠️</span>
+            修图工具
+          </h2>
+          <p class="cosai-panel-subtitle">常用修图辅助功能</p>
+        </div>
+        <div class="cosai-tools-grid">
+          <button class="cosai-tool-card" id="cosai-tool-freq">
+            <span class="cosai-tool-icon">📊</span>
+            <span class="cosai-tool-name">高低频</span>
+          </button>
+          <button class="cosai-tool-card" id="cosai-tool-curves">
+            <span class="cosai-tool-icon">〰️</span>
+            <span class="cosai-tool-name">双曲线</span>
+          </button>
+          <button class="cosai-tool-card" id="cosai-tool-glow">
+            <span class="cosai-tool-icon">✨</span>
+            <span class="cosai-tool-name">辉光</span>
+          </button>
+          <button class="cosai-tool-card" id="cosai-tool-getimg">
+            <span class="cosai-tool-icon">🖼️</span>
+            <span class="cosai-tool-name">获取图片</span>
+          </button>
+          <button class="cosai-tool-card" id="cosai-tool-undo">
+            <span class="cosai-tool-icon">↩️</span>
+            <span class="cosai-tool-name">撤销</span>
+          </button>
+          <button class="cosai-tool-card" id="cosai-tool-redo">
+            <span class="cosai-tool-icon">↪️</span>
+            <span class="cosai-tool-name">重做</span>
+          </button>
+          <button class="cosai-tool-card" id="cosai-tool-stamp">
+            <span class="cosai-tool-icon">📋</span>
+            <span class="cosai-tool-name">盖印可见</span>
+          </button>
+          <button class="cosai-tool-card" id="cosai-tool-merge">
+            <span class="cosai-tool-icon">🔗</span>
+            <span class="cosai-tool-name">合并可见</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- 日志面板 -->
+      <div class="cosai-panel cosai-panel--logs" data-panel-body="logs" style="display:none;">
+        <div class="cosai-panel-header">
+          <h2 class="cosai-panel-title">
+            <span class="cosai-panel-title-icon">📋</span>
+            运行日志
+          </h2>
+          <p class="cosai-panel-subtitle">分级日志 · 自动落盘到本地</p>
+        </div>
+        <div class="cosai-log-toolbar">
+          <div class="cosai-log-filter">
+            <button class="cosai-log-filter-btn active" data-level="all">全部</button>
+            <button class="cosai-log-filter-btn" data-level="debug">调试</button>
+            <button class="cosai-log-filter-btn" data-level="info">信息</button>
+            <button class="cosai-log-filter-btn" data-level="warn">警告</button>
+            <button class="cosai-log-filter-btn" data-level="error">错误</button>
+            <span class="cosai-log-count" id="cosai-log-count">0</span>
+          </div>
+          <div class="cosai-log-actions">
+            <button class="cosai-log-btn" id="cosai-log-export" title="导出全部日志并保存">👇 导出</button>
+            <button class="cosai-log-btn" id="cosai-log-clear" title="清空面板日志">清空</button>
+          </div>
+        </div>
+        <div class="cosai-log-box" id="cosai-log-box">
+          <div class="cosai-log-empty">暂无日志</div>
+        </div>
+      </div>
     </div>
-    <div class="row">
-      <label>Base URL</label>
-      <input type="text" id="aitest-baseurl" placeholder="https://generativelanguage.googleapis.com/v1beta" />
-    </div>
-    <div class="row">
-      <label>API Key</label>
-      <input type="password" id="aitest-apikey" placeholder="输入 API Key" />
-    </div>
-    <div class="row">
-      <label>模型</label>
-      <input type="text" id="aitest-model" value="gemini-2.0-flash" />
-    </div>
-    <div class="row">
-      <label>测试类型</label>
-      <select id="aitest-type">
-        <option value="chat" selected>文字对话（推荐）</option>
-        <option value="models">列模型列表</option>
-        <option value="vision">图像理解（需要图片）</option>
-      </select>
-    </div>
-    <div class="btn-row">
-      <button class="btn success" id="aitest-run">▶ 开始测试</button>
-      <button class="btn" id="aitest-credit" style="background:#b45309;">💰 查积分</button>
-      <button class="btn secondary" id="aitest-save">💾 保存</button>
-      <button class="btn secondary" id="aitest-load">📂 读取</button>
-    </div>
-    <div class="result-box" id="aitest-result">等待测试...</div>
   </div>
 
   <!-- 返图区域组件（HHPS 风格） -->
   <script src="风月-返图区域/index.js"></script>
 
   <script>
+    // ===== CosAI 主界面初始化（三栏布局） =====
+    (function() {
+      var uiState = {
+        currentPanel: 'draw',
+        refImage: null,
+        results: [],
+        activeResult: 0,
+        generating: false,
+        tasks: [],
+      };
+
+      // 预设提示词
+      var DRAW_PRESETS = {
+        portrait: '专业人像摄影，柔和光影，皮肤细腻，浅景深虚化背景，电影感色调，高清细节，85mm定焦镜头',
+        anime: '日系动漫风格，细腻线条，明亮色彩，可爱角色，梦幻氛围，赛璐璐上色，高质量插画',
+        product: '商业产品摄影，干净背景，专业布光，质感突出，高端大气，广告级画面，微距细节',
+        landscape: '壮丽风景摄影，黄金时刻光线，层次分明，超广角视野，震撼自然，电影级调色，RAW格式质感',
+        cyberpunk: '赛博朋克风格，霓虹灯光，雨夜街道，未来科技感，全息投影，高对比度，紫蓝色调',
+        oil: '古典油画风格，厚重笔触，丰富色彩，光影层次，博物馆质感，印象派风格，艺术感强烈',
+        watercolor: '水彩画风格，清新淡雅，晕染效果，透明质感，柔和边缘，艺术手绘，纸张纹理',
+        '3d': '3D渲染风格，C4D质感，光滑材质，柔和灯光，等距视角，卡通渲染，高质量3D建模',
+      };
+
+      function initMainUI() {
+        var mainUi = document.getElementById('cosai-main-ui');
+        var root = document.getElementById('root');
+        if (!mainUi) return;
+
+        // 隐藏加载中的 root div，显示主界面
+        if (root) root.style.display = 'none';
+        mainUi.style.display = 'flex';
+
+        // 隐藏旧的顶部工具箱（避免遮挡侧边栏）
+        var oldToolbox = document.getElementById('cosai-toolbox');
+        if (oldToolbox) oldToolbox.style.display = 'none';
+
+        // 隐藏旧的浮动绘画面板
+        var oldDrawPanel = document.getElementById('cosai-draw-panel');
+        if (oldDrawPanel) oldDrawPanel.style.display = 'none';
+
+        // 隐藏旧的 AI 测试面板
+        var oldAiPanel = document.getElementById('cosai-ai-test-panel');
+        if (oldAiPanel) oldAiPanel.style.display = 'none';
+
+        // 绑定侧边栏切换
+        bindSidebar();
+        // 绑定绘图面板
+        bindDrawPanel2();
+        // 进入默认的闭源模型页：自动获取一次参考图
+        autoFetchRefImage();
+        // 绑定配置面板
+        bindConfigPanel2();
+        // 绑定工具面板
+        bindToolsPanel();
+        // 绑定日志面板
+        bindLogsPanel();
+        // 绑定分隔线拖动
+        bindDividerDrag();
+        // 绑定调用反馈区
+        bindFeedbackClear();
+      }
+
+      // 分隔线拖动功能
+      function bindDividerDrag() {
+        var leftDivider = document.getElementById('cosai-divider-left');
+        var mainUi = document.getElementById('cosai-main-ui');
+        var sidebar = document.querySelector('.cosai-sidebar');
+        var mainPanel = document.getElementById('cosai-main-panel');
+
+        // 左侧分隔线：调整侧边栏宽度
+        if (leftDivider && sidebar && mainUi) {
+          var isDraggingLeft = false;
+          var startX = 0;
+          var startWidth = 0;
+
+          leftDivider.addEventListener('mousedown', function(e) {
+            isDraggingLeft = true;
+            startX = e.clientX;
+            startWidth = sidebar.offsetWidth;
+            leftDivider.classList.add('dragging');
+            document.body.style.cursor = 'col-resize';
+            document.body.style.userSelect = 'none';
+            e.preventDefault();
+          });
+
+          document.addEventListener('mousemove', function(e) {
+            if (!isDraggingLeft) return;
+            var deltaX = e.clientX - startX;
+            var newWidth = Math.max(56, Math.min(80, startWidth + deltaX));
+            sidebar.style.width = newWidth + 'px';
+          });
+
+          document.addEventListener('mouseup', function() {
+            if (isDraggingLeft) {
+              isDraggingLeft = false;
+              leftDivider.classList.remove('dragging');
+              document.body.style.cursor = '';
+              document.body.style.userSelect = '';
+            }
+          });
+        }
+      }
+
+      function bindSidebar() {
+        var btns = document.querySelectorAll('.cosai-sidebar-btn[data-panel]');
+        btns.forEach(function(btn) {
+          btn.addEventListener('click', function() {
+            var panel = btn.dataset.panel;
+            switchPanel(panel);
+          });
+        });
+      }
+
+      function switchPanel(panelName) {
+        uiState.currentPanel = panelName;
+        // 更新侧边栏状态
+        var btns = document.querySelectorAll('.cosai-sidebar-btn[data-panel]');
+        btns.forEach(function(b) {
+          b.classList.toggle('active', b.dataset.panel === panelName);
+        });
+        // 更新面板显示
+        var panels = document.querySelectorAll('.cosai-panel[data-panel-body]');
+        panels.forEach(function(p) {
+          p.style.display = p.dataset.panelBody === panelName ? '' : 'none';
+        });
+        // 进入闭源大模型页：若参考图为空则自动获取
+        if (panelName === 'draw') {
+          autoFetchRefImage();
+        }
+      }
+
+      function bindDrawPanel2() {
+        // 取画布图
+        var getCanvasBtn = document.getElementById('cosai-get-canvas');
+        if (getCanvasBtn) {
+          getCanvasBtn.addEventListener('click', getRefImageFromCanvas);
+        }
+
+        // 移除参考图
+        var removeBtn = document.getElementById('cosai-ref-remove');
+        if (removeBtn) {
+          removeBtn.addEventListener('click', function() {
+            uiState.refImage = null;
+            updateRefPreview();
+          });
+        }
+
+        // 提示词字数
+        var promptInput = document.getElementById('cosai-prompt');
+        if (promptInput) {
+          promptInput.addEventListener('input', function() {
+            var count = promptInput.value.length;
+            var countEl = document.getElementById('cosai-prompt-count');
+            if (countEl) countEl.textContent = count + ' 字';
+          });
+        }
+
+        // 预设标签（支持点击切换：再次点击移除）
+        var presetTags = document.querySelectorAll('.cosai-preset-tag[data-preset]');
+        var activePresets = {};
+        presetTags.forEach(function(tag) {
+          tag.addEventListener('click', function() {
+            var preset = tag.dataset.preset;
+            var text = DRAW_PRESETS[preset];
+            if (!text || !promptInput) return;
+
+            if (activePresets[preset]) {
+              // 已激活，移除该预设
+              var currentVal = promptInput.value;
+              var patterns = [
+                '，' + text,
+                text + '，',
+                text
+              ];
+              for (var i = 0; i < patterns.length; i++) {
+                if (currentVal.indexOf(patterns[i]) >= 0) {
+                  currentVal = currentVal.replace(patterns[i], '');
+                  break;
+                }
+              }
+              promptInput.value = currentVal.trim();
+              tag.classList.remove('active');
+              activePresets[preset] = false;
+            } else {
+              // 未激活，添加预设
+              if (promptInput.value.trim()) {
+                promptInput.value = promptInput.value.trim() + '，' + text;
+              } else {
+                promptInput.value = text;
+              }
+              tag.classList.add('active');
+              activePresets[preset] = true;
+            }
+            promptInput.dispatchEvent(new Event('input'));
+          });
+        });
+
+        // 生成按钮
+        var genBtn = document.getElementById('cosai-generate');
+        if (genBtn) {
+          genBtn.addEventListener('click', generateImage);
+        }
+
+        // 键盘快捷键：Ctrl/Cmd + Enter 生成
+        if (promptInput) {
+          promptInput.addEventListener('keydown', function(e) {
+            if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+              e.preventDefault();
+              generateImage();
+            }
+          });
+        }
+      }
+
+      function getRefImageFromCanvas() {
+        if (!window.__cosai_ps_api || !window.__cosai_ps_api.getDocumentPixelsAsBase64) {
+          showToast('PS API 未就绪，请确认插件运行环境', 'error');
+          return;
+        }
+        var btn = document.getElementById('cosai-get-canvas');
+        var original = btn ? btn.innerHTML : '';
+        if (btn) { btn.disabled = true; btn.textContent = '⏳ 获取中...'; }
+        window.__cosai_ps_api.getDocumentPixelsAsBase64().then(function(result) {
+          if (result && result.base64) {
+            var b64 = result.base64;
+            if (!b64.startsWith('data:')) b64 = 'data:image/png;base64,' + b64;
+            uiState.refImage = b64;
+            updateRefPreview();
+            showToast('已获取画布图片', 'success');
+          } else {
+            showToast('获取图片失败：未返回数据', 'error');
+          }
+        }).catch(function(e) {
+          console.error('[Draw] 获取画布图失败:', e);
+          showToast('获取失败: ' + (e.message || '未知错误'), 'error');
+        }).finally(function() {
+          var btn = document.getElementById('cosai-get-canvas');
+          if (btn) {
+            btn.disabled = false;
+            btn.innerHTML = original || '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>从画布取参考图';
+          }
+        });
+      }
+
+      function updateRefPreview() {
+        var placeholder = document.getElementById('cosai-ref-placeholder');
+        var img = document.getElementById('cosai-ref-img');
+        var removeBtn = document.getElementById('cosai-ref-remove');
+        if (uiState.refImage) {
+          if (placeholder) placeholder.style.display = 'none';
+          if (img) { img.src = uiState.refImage; img.style.display = 'block'; }
+          if (removeBtn) removeBtn.style.display = 'flex';
+        } else {
+          if (placeholder) placeholder.style.display = 'flex';
+          if (img) { img.style.display = 'none'; img.src = ''; }
+          if (removeBtn) removeBtn.style.display = 'none';
+        }
+      }
+
+      // 静默自动获取参考图：仅在闭源模型页且参考图为空时调用，
+      // host 端 auto 规则会自动判断「有选区拉选区 / 无选区拉全文档」
+      var _refFetching = false;
+      function autoFetchRefImage() {
+        if (!window.__cosai_ps_api || !window.__cosai_ps_api.getDocumentPixelsAsBase64) return;
+        if (uiState.refImage) return;
+        if (_refFetching) return; // 已有一次自动获取在途，避免重复触发
+        _refFetching = true;
+        window.__cosai_ps_api.getDocumentPixelsAsBase64().then(function (result) {
+          if (result && result.base64) {
+            var b64 = result.base64;
+            if (!b64.startsWith('data:')) b64 = 'data:image/png;base64,' + b64;
+            uiState.refImage = b64;
+            updateRefPreview();
+            window.__dbg('[AUTO-REF] 自动获取参考图成功 len=' + b64.length);
+          }
+        }).catch(function (e) {
+          window.__dbg('[AUTO-REF] 自动获取参考图失败: ' + (e && e.message));
+        }).finally(function () {
+          _refFetching = false;
+        });
+      }
+
+      function getDrawConfig() {
+        var apiKey = '';
+        var baseUrl = '';
+        try {
+          var store = window.__cosaiSettingsStore;
+          if (store && typeof store.getState === 'function') {
+            var state = store.getState();
+            if (state.grsConfig) {
+              apiKey = state.grsConfig.apiKey || '';
+              baseUrl = state.grsConfig.baseUrl || '';
+            }
+          }
+        } catch(e) {}
+        if (!apiKey) {
+          try {
+            var raw = localStorage.getItem('cosai-settings');
+            if (raw) {
+              var settings = JSON.parse(raw);
+              var s = settings.state || settings;
+              if (s.grsConfig) {
+                apiKey = s.grsConfig.apiKey || '';
+                baseUrl = s.grsConfig.baseUrl || '';
+              }
+            }
+          } catch(e) {}
+        }
+        // 也从配置面板输入框读（可能刚填了还没保存）
+        var keyInput = document.getElementById('cosai-apikey');
+        if (keyInput && keyInput.value.trim()) apiKey = keyInput.value.trim();
+        var urlInput = document.getElementById('cosai-baseurl');
+        if (urlInput && urlInput.value.trim()) baseUrl = urlInput.value.trim();
+
+        if (!apiKey) return { error: '请先在「模型配置」中设置 API Key' };
+        return { apiKey: apiKey, baseUrl: baseUrl || 'https://grsai.dakka.com.cn' };
+      }
+
+      // ===== 并发任务队列 =====
+      var _concurrencyLimit = 2;
+      var _runningCount = 0;
+      var __taskSeq = 0;
+
+      function escapeHtml(s) {
+        return String(s == null ? '' : s)
+          .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+          .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+      }
+
+      // 入口：校验后把生成请求压入队列（可反复点击累积多个任务）
+      function generateImage() {
+        var promptInput = document.getElementById('cosai-prompt');
+        var prompt = promptInput ? promptInput.value.trim() : '';
+        if (!prompt) { showToast('请输入提示词', 'error'); return; }
+        var cfg = getDrawConfig();
+        if (cfg.error) { showToast(cfg.error, 'error'); return; }
+
+        var model = document.getElementById('cosai-model').value;
+        var ratio = document.getElementById('cosai-ratio').value;
+        var size = document.getElementById('cosai-size').value;
+        var countEl = document.getElementById('cosai-count');
+        var count = Math.max(1, parseInt(countEl && countEl.value, 10) || 1);
+        var concEl = document.getElementById('cosai-concurrent');
+        _concurrencyLimit = Math.max(1, parseInt(concEl && concEl.value, 10) || 2);
+
+        __taskSeq++;
+        var task = {
+          id: __taskSeq,
+          status: 'pending', // pending|running|done|error
+          phase: '排队中',
+          progress: 0,
+          promptFull: prompt,
+          prompt: prompt.length > 34 ? prompt.slice(0, 34) + '…' : prompt,
+          model: model, ratio: ratio, size: size,
+          count: count, got: 0,
+          images: [],
+          error: null,
+          createdAt: Date.now(),
+        };
+
+        uiState.tasks.push(task);
+        renderTaskList();
+        addFeedback('info', '队列', '任务 #' + task.id + ' 已入队（目标 ' + count + ' 张）');
+        if (window.__cosaiLog) window.__cosaiLog('info', 'QUEUE', '任务 #' + task.id + ' 入队 target=' + count + ' concurrency=' + _concurrencyLimit);
+        schedulerTick();
+      }
+
+      // 调度器：在途并发 < 上限时依次启动 pending 任务
+      function schedulerTick() {
+        while (_runningCount < _concurrencyLimit) {
+          var next = null;
+          for (var i = 0; i < uiState.tasks.length; i++) {
+            if (uiState.tasks[i].status === 'pending') { next = uiState.tasks[i]; break; }
+          }
+          if (!next) break;
+          next.status = 'running';
+          next.phase = '提交任务';
+          _runningCount++;
+          runDrawTask(next);
+        }
+        renderTaskList();
+      }
+
+      function finishTask(task, status, errMsg) {
+        task.status = status;
+        task.phase = status === 'done' ? '完成' : '失败';
+        task.progress = status === 'done' ? 100 : task.progress;
+        if (errMsg) task.error = errMsg;
+        if (_runningCount > 0) _runningCount--;
+        if (window.__cosaiLog) window.__cosaiLog(status === 'done' ? 'info' : 'error', 'QUEUE',
+          '任务 #' + task.id + (status === 'done' ? ' 完成, 共 ' + task.images.length + ' 张' : ' 失败: ' + (errMsg || '')));
+        schedulerTick();
+      }
+
+      // 单任务执行体：提交→轮询→下载→保存→贴回，按目标张数不足则自动补齐重发
+      async function runDrawTask(task) {
+        var cfg = getDrawConfig();
+        if (cfg.error) { finishTask(task, 'error', cfg.error); return; }
+        var baseUrl = cfg.baseUrl.replace(/\/+$/, '');
+        var apiKey = cfg.apiKey;
+        var refB64 = uiState.refImage || '';
+
+        var maxSubtasks = 3; // 单任务最多发 3 次生成请求来补满目标张数
+        var subtask = 0;
+        try {
+          while (task.got < task.count && subtask < maxSubtasks) {
+            subtask++;
+            task.phase = subtask === 1 ? '提交生成' : '补齐第 ' + subtask + ' 批';
+            renderTaskList();
+
+            // 1) 提交
+            var taskId = await submitDrawTask(baseUrl, apiKey, task, refB64);
+            task.phase = '生成中';
+            renderTaskList();
+            if (window.__cosaiLog) window.__cosaiLog('info', 'GEN', '任务 #' + task.id + ' 第' + subtask + '批已提交 taskId=' + taskId);
+
+            // 2) 轮询
+            var data = await pollDrawResult(baseUrl, apiKey, taskId, function (p, s) {
+              task.phase = s;
+              task.progress = Math.min(90, Math.round(task.got / task.count * 50) + Math.round(p * 0.4));
+              renderTaskList();
+            }, '#' + task.id);
+
+            // 3) 下载并返图（单张失败不阻塞整体）
+            var urls = (data.results || []).filter(function (r) { return r && r.url; });
+            for (var k = 0; k < urls.length && task.got < task.count; k++) {
+              try {
+                var imgB64 = await fetchImageAsBase64(urls[k].url);
+                task.images.push(imgB64);
+                task.got++;
+                task.progress = Math.min(94, Math.round(task.got / task.count * 100));
+                // 保存本地
+                var saved = null;
+                try {
+                  var fname = 'ai_gen_' + Date.now() + '_' + task.id + '_' + task.got + '.png';
+                  if (window.__cosai_ps_api && window.__cosai_ps_api.saveImageToLocal) {
+                    saved = await window.__cosai_ps_api.saveImageToLocal(imgB64, fname);
+                  }
+                  if (window.__cosaiLog) window.__cosaiLog('info', 'SAVE', '#' + task.id + ' 已存本地 ' + ((saved && saved.name) || fname));
+                } catch (e) { if (window.__cosaiLog) window.__cosaiLog('warn', 'SAVE', '#' + task.id + ' 本地保存失败: ' + e.message); }
+                // 贴回 PS 新图层（按选区对齐由 host 处理）
+                try {
+                  if (window.__cosai_ps_api && window.__cosai_ps_api.placeImage) {
+                    await window.__cosai_ps_api.placeImage(imgB64, 'newLayer', 'AI生成_' + task.id + '_' + task.got);
+                  }
+                } catch (e) { if (window.__cosaiLog) window.__cosaiLog('warn', 'PLACE', '#' + task.id + ' 贴回失败: ' + e.message); }
+                // 加入共享结果区
+                addResultImage(imgB64, saved);
+              } catch (e) {
+                if (window.__cosaiLog) window.__cosaiLog('error', 'DL', '#' + task.id + ' 第' + (k + 1) + '张下载失败: ' + e.message);
+              }
+              renderTaskList();
+            }
+            // 未拿满目标张数 → 循环再次提交补齐（受 maxSubtasks 约束）
+            if (task.got < task.count && subtask >= maxSubtasks && window.__cosaiLog) {
+              window.__cosaiLog('warn', 'GEN', '#' + task.id + ' 已重试 ' + maxSubtasks + ' 批仍未拿满目标，结束');
+            }
+          }
+          if (task.got === 0) {
+            finishTask(task, 'error', '未获得任何生成结果');
+          } else {
+            task.progress = 100;
+            finishTask(task, 'done');
+            addFeedback('ok', '完成', '任务 #' + task.id + ' 完成，共 ' + task.images.length + ' 张');
+          }
+        } catch (e) {
+          finishTask(task, 'error', e.message || String(e));
+          addFeedback('error', '失败', '任务 #' + task.id + ' 失败: ' + (e.message || e));
+        }
+      }
+
+      function submitDrawTask(baseUrl, apiKey, task, refB64) {
+        var body = {
+          model: task.model,
+          prompt: task.promptFull,
+          aspectRatio: task.ratio,
+          imageSize: task.size,
+          webHook: '-1',
+          count: task.count,      // 期望张数提示；服务端如不支持该字段会自动忽略，随后端配额补齐
+          numImages: task.count,
+        };
+        if (refB64) {
+          var b64 = refB64.indexOf(',') > 0 ? refB64.split(',')[1] : refB64;
+          body.urls = [b64];
+        }
+        return fetch(baseUrl + '/v1/draw/nano-banana', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + apiKey },
+          body: JSON.stringify(body),
+        }).then(function (resp) {
+          return resp.text();
+        }).then(function (text) {
+          var data = null;
+          try { data = JSON.parse(text); } catch (e) {}
+          if (!data || data.code !== 0) {
+            throw new Error((data && data.msg) || ('提交失败 · ' + String(text).slice(0, 120)));
+          }
+          var id = data.data && data.data.id;
+          if (!id) throw new Error('响应未包含任务 ID: ' + String(text).slice(0, 160));
+          return id;
+        });
+      }
+
+      // 重绘任务队列 + 顶部汇总进度
+      function renderTaskList() {
+        var panel = document.getElementById('cosai-task-panel');
+        var list = document.getElementById('cosai-task-list');
+        var countEl = document.getElementById('cosai-task-count');
+        var tasks = uiState.tasks || [];
+
+        if (list) {
+          if (tasks.length === 0) {
+            if (panel) panel.style.display = 'none';
+            list.innerHTML = '';
+          } else {
+            if (panel) panel.style.display = 'block';
+            var html = '';
+            for (var i = 0; i < tasks.length; i++) {
+              var t = tasks[i];
+              var badgeText = { pending: '排队', running: '生成中', done: '完成', error: '失败' }[t.status] || t.status;
+              html += '<div class="cosai-task-item ' + t.status + '">'
+                + '<div class="cosai-task-idx">#' + t.id + '</div>'
+                + '<div class="cosai-task-body">'
+                + '<div class="cosai-task-main">'
+                + '<div class="cosai-task-prompt" title="' + escapeHtml(t.promptFull) + '">' + escapeHtml(t.prompt) + '</div>'
+                + '<span class="cosai-task-badge ' + t.status + '">' + badgeText + '</span>'
+                + '</div>'
+                + '<div class="cosai-task-sub">阶段: ' + escapeHtml(t.phase || '')
+                + ' · 已得 ' + (t.images ? t.images.length : 0) + '/' + t.count + ' 张'
+                + (t.error ? ' · ' + escapeHtml(t.error) : '') + '</div>'
+                + '<div class="cosai-task-bar"><div class="cosai-task-bar-fill" style="width:' + (t.progress || 0) + '%"></div></div>'
+                + '</div></div>';
+            }
+            list.innerHTML = html;
+          }
+          if (countEl) countEl.textContent = tasks.length + ' 个';
+        }
+
+        // 顶部汇总进度
+        var running = 0, done = 0, failed = 0, n = tasks.length;
+        for (var j = 0; j < n; j++) {
+          if (tasks[j].status === 'running') running++;
+          else if (tasks[j].status === 'done') done++;
+          else if (tasks[j].status === 'error') failed++;
+        }
+        var progEl = document.getElementById('cosai-progress');
+        var fillEl = document.getElementById('cosai-progress-fill');
+        var txtEl = document.getElementById('cosai-progress-text');
+        if (n === 0) {
+          if (progEl) progEl.style.display = 'none';
+        } else {
+          if (progEl) progEl.style.display = 'flex';
+          if (fillEl) fillEl.style.width = (n ? Math.round((done + failed) / n * 100) : 0) + '%';
+          if (txtEl) txtEl.textContent = '运行 ' + running + ' · 排队 ' + (n - running - done - failed) + ' · 完成 ' + done + (failed ? ' · 失败 ' + failed : '');
+        }
+      }
+
+      async function pollDrawResult(baseUrl, apiKey, taskId, onProgress, tag) {
+        var maxAttempts = 60;
+        var attempt = 0;
+        var lastWarn = '';
+        var lastStatus = '';
+        while (attempt < maxAttempts) {
+          attempt++;
+          try {
+            var resp = await fetch(baseUrl + '/v1/draw/result', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + apiKey },
+              body: JSON.stringify({ id: taskId }),
+            });
+            var text = await resp.text();
+            var data = null;
+            try { data = JSON.parse(text); } catch(e) {}
+            if (!resp.ok || !data || data.code !== 0) {
+              if (data && data.code === -22) {
+                // 任务尚未就绪：仅提示一次，避免刷屏（并发送到磁盘日志）
+                if (lastWarn !== '-22' && window.__cosaiLog) { window.__cosaiLog('debug', 'POLL', (tag || '') + ' 任务排队中代码 -22'); lastWarn = '-22'; }
+                await sleepDraw(1000);
+                continue;
+              }
+              throw new Error((data && data.msg) || ('HTTP ' + resp.status));
+            }
+            lastWarn = '';
+            var taskData = data.data;
+            var progress = taskData.progress || 0;
+            var status = taskData.status || 'running';
+            if (status !== lastStatus) {
+              if (window.__cosaiLog) window.__cosaiLog('info', 'POLL', (tag || '') + ' 状态=' + drawStatusText(status) + '(' + progress + '%)');
+              lastStatus = status;
+            }
+            if (onProgress) onProgress(progress || 0, drawStatusText(status));
+            if (status === 'succeeded') return taskData;
+            if (status === 'failed') {
+              throw new Error(taskData.failure_reason || taskData.error || '生成失败');
+            }
+            await sleepDraw(2000);
+          } catch(e) {
+            if (e.message && String(e.message).indexOf('HTTP') >= 0) {
+              if (lastWarn !== 'http') { lastWarn = 'http'; }
+              await sleepDraw(2000);
+              continue;
+            }
+            throw e;
+          }
+        }
+        throw new Error('生成超时，请稍后重试');
+      }
+
+      function drawStatusText(status) {
+        var map = { running: '生成中', succeeded: '已完成', failed: '失败', pending: '排队中' };
+        return map[status] || status || '处理中';
+      }
+
+      async function fetchImageAsBase64(url) {
+        var resp = await fetch(url);
+        if (!resp.ok) throw new Error('图片下载失败: HTTP ' + resp.status);
+        var blob = await resp.blob();
+        return new Promise(function(resolve, reject) {
+          var reader = new FileReader();
+          reader.onloadend = function() { resolve(reader.result); };
+          reader.onerror = reject;
+          reader.readAsDataURL(blob);
+        });
+      }
+
+      function sleepDraw(ms) {
+        return new Promise(function(r) { setTimeout(r, ms); });
+      }
+
+      function addResultImage(base64, savedInfo) {
+        uiState.results.push({ base64: base64, saved: savedInfo });
+        uiState.activeResult = uiState.results.length - 1;
+        renderResultPanel();
+      }
+
+      function renderResultPanel() {
+        var bodyEl = document.getElementById('cosai-result-body');
+        var thumbsEl = document.getElementById('cosai-result-thumbs');
+        var countEl = document.getElementById('cosai-result-count');
+        if (!bodyEl) return;
+
+        if (uiState.results.length === 0) {
+          bodyEl.innerHTML = '<div class="cosai-result-empty"><div class="cosai-result-empty-icon">🖼️</div><div class="cosai-result-empty-text">暂无生成结果</div><div class="cosai-result-empty-hint">AI 生成后结果将显示在这里</div></div>';
+          if (thumbsEl) thumbsEl.innerHTML = '';
+          if (countEl) countEl.textContent = '0';
+          return;
+        }
+
+        var active = uiState.results[uiState.activeResult];
+        bodyEl.innerHTML = '<img class="cosai-result-main-img" src="' + active.base64 + '" alt="生成结果" />';
+
+        // 保存状态提示
+        if (active.saved && active.saved.path) {
+          var savedInfo = '<div class="cosai-result-saved-info">✓ 已保存至本地</div>';
+          bodyEl.insertAdjacentHTML('beforeend', savedInfo);
+        }
+
+        // 添加操作按钮
+        var actionsHtml = '<div class="cosai-result-actions">';
+        actionsHtml += '<button class="cosai-result-action-btn cosai-result-action-btn--primary" id="cosai-place-btn">📥 贴入画布</button>';
+        actionsHtml += '<button class="cosai-result-action-btn" id="cosai-save-btn">💾 保存</button>';
+        actionsHtml += '<button class="cosai-result-action-btn cosai-result-action-btn--danger" id="cosai-delete-btn" title="删除此图">🗑️</button>';
+        actionsHtml += '</div>';
+        bodyEl.insertAdjacentHTML('beforeend', actionsHtml);
+
+        // 绑定按钮 - 贴入画布
+        var placeBtn = document.getElementById('cosai-place-btn');
+        if (placeBtn) {
+          placeBtn.addEventListener('click', function() {
+            if (!window.__cosai_ps_api || !window.__cosai_ps_api.placeImage) {
+              showToast('PS API 未就绪', 'error'); return;
+            }
+            placeBtn.disabled = true;
+            placeBtn.textContent = '⏳ 贴入中...';
+            window.__cosai_ps_api.placeImage(active.base64, 'newLayer', 'AI生成_' + (uiState.activeResult + 1))
+              .then(function() { showToast('已贴入画布', 'success'); })
+              .catch(function(e) { showToast('贴入失败: ' + e.message, 'error'); })
+              .finally(function() {
+                placeBtn.disabled = false;
+                placeBtn.innerHTML = '📥 贴入画布';
+              });
+          });
+        }
+
+        // 绑定按钮 - 保存
+        var saveBtn = document.getElementById('cosai-save-btn');
+        if (saveBtn) {
+          saveBtn.addEventListener('click', function() {
+            if (!window.__cosai_ps_api || !window.__cosai_ps_api.saveImageToLocal) {
+              // 降级：浏览器下载
+              var a = document.createElement('a');
+              a.href = active.base64;
+              a.download = 'ai_gen_' + Date.now() + '.png';
+              a.click();
+              showToast('已开始下载', 'success');
+              return;
+            }
+            saveBtn.disabled = true;
+            saveBtn.textContent = '⏳ 保存中...';
+            var fname = 'ai_gen_' + Date.now() + '.png';
+            window.__cosai_ps_api.saveImageToLocal(active.base64, fname)
+              .then(function(r) {
+                active.saved = r;
+                showToast('已保存到 ' + (r.folder || '本地'), 'success');
+                renderResultPanel();
+              })
+              .catch(function(e) { showToast('保存失败: ' + e.message, 'error'); })
+              .finally(function() {
+                saveBtn.disabled = false;
+                saveBtn.innerHTML = '💾 保存';
+              });
+          });
+        }
+
+        // 绑定按钮 - 删除
+        var deleteBtn = document.getElementById('cosai-delete-btn');
+        if (deleteBtn) {
+          deleteBtn.addEventListener('click', function() {
+            if (uiState.results.length <= 1) {
+              uiState.results = [];
+              uiState.activeResult = 0;
+            } else {
+              uiState.results.splice(uiState.activeResult, 1);
+              uiState.activeResult = Math.min(uiState.activeResult, uiState.results.length - 1);
+            }
+            renderResultPanel();
+            showToast('已删除', 'success');
+          });
+        }
+
+        // 缩略图
+        if (thumbsEl) {
+          var html = '';
+          uiState.results.forEach(function(r, i) {
+            html += '<div class="cosai-result-thumb ' + (i === uiState.activeResult ? 'active' : '') + '" data-idx="' + i + '"><img src="' + r.base64 + '" alt="" /></div>';
+          });
+          thumbsEl.innerHTML = html;
+          thumbsEl.querySelectorAll('.cosai-result-thumb').forEach(function(thumb) {
+            thumb.addEventListener('click', function() {
+              uiState.activeResult = parseInt(thumb.dataset.idx, 10);
+              renderResultPanel();
+            });
+          });
+        }
+
+        if (countEl) countEl.textContent = uiState.results.length;
+      }
+
+      function bindConfigPanel2() {
+        // 显示/隐藏 Key
+        var toggleBtn = document.getElementById('cosai-toggle-key');
+        var keyInput = document.getElementById('cosai-apikey');
+        if (toggleBtn && keyInput) {
+          toggleBtn.addEventListener('click', function() {
+            keyInput.type = keyInput.type === 'password' ? 'text' : 'password';
+          });
+        }
+
+        // 保存配置
+        var saveBtn = document.getElementById('cosai-save-config');
+        if (saveBtn) saveBtn.addEventListener('click', saveConfig2);
+
+        // 测试连接
+        var testBtn = document.getElementById('cosai-test-config');
+        if (testBtn) testBtn.addEventListener('click', testConfig2);
+
+        // 加载已有配置
+        loadConfigToPanel();
+      }
+
+      function loadConfigToPanel() {
+        var apiKeyEl = document.getElementById('cosai-apikey');
+        var baseUrlEl = document.getElementById('cosai-baseurl');
+        var modelEl = document.getElementById('cosai-model-default');
+        var loaded = false;
+        // 优先从本地 Key 文件读取（持久化的单一数据源）
+        try {
+          if (window.__cosai_ps_api && window.__cosai_ps_api.readKeyConfig) {
+            var fileCfg = null;
+            window.__cosai_ps_api.readKeyConfig().then(function (f) {
+              fileCfg = f || {};
+              if (apiKeyEl && fileCfg.apiKey) { apiKeyEl.value = fileCfg.apiKey; loaded = true; }
+              if (baseUrlEl && fileCfg.baseUrl) baseUrlEl.value = fileCfg.baseUrl;
+              if (modelEl && fileCfg.defaultModel) modelEl.value = fileCfg.defaultModel;
+              // 文件读到了就直接用，不再从 store/localStorage 覆盖
+            }).catch(function() {});
+          }
+        } catch(e) {}
+        // 兜底：store -> localStorage（仅在文件无 Key 时使用）
+        try {
+          var store = window.__cosaiSettingsStore;
+          if (store && typeof store.getState === 'function') {
+            var state = store.getState();
+            if (state.grsConfig) {
+              if (apiKeyEl && !apiKeyEl.value && state.grsConfig.apiKey) apiKeyEl.value = state.grsConfig.apiKey;
+              if (baseUrlEl && !baseUrlEl.value && state.grsConfig.baseUrl) baseUrlEl.value = state.grsConfig.baseUrl;
+            }
+          }
+        } catch(e) {}
+        if (!apiKeyEl || apiKeyEl.value) return;
+        try {
+          var raw = localStorage.getItem('cosai-settings');
+          if (raw) {
+            var settings = JSON.parse(raw);
+            var s = settings.state || settings;
+            if (s.grsConfig) {
+              if (apiKeyEl && !apiKeyEl.value && s.grsConfig.apiKey) apiKeyEl.value = s.grsConfig.apiKey;
+              if (baseUrlEl && !baseUrlEl.value && s.grsConfig.baseUrl) baseUrlEl.value = s.grsConfig.baseUrl;
+            }
+          }
+        } catch(e) {}
+      }
+
+      function setConfigStatus(text, type) {
+        var el = document.getElementById('cosai-config-status');
+        if (!el) return;
+        el.textContent = text;
+        el.className = 'cosai-status' + (type ? ' ' + type : '');
+      }
+
+      async function saveConfig2() {
+        var apiKey = document.getElementById('cosai-apikey').value.trim();
+        var baseUrl = document.getElementById('cosai-baseurl').value.trim();
+        var model = document.getElementById('cosai-model-default').value.trim();
+        if (!apiKey) { setConfigStatus('请输入 API Key', 'error'); return; }
+
+        setConfigStatus('正在保存...', 'loading');
+        try {
+          var savedToStore = false;
+          try {
+            var store = window.__cosaiSettingsStore;
+            if (store && store.setState) {
+              store.setState({
+                provider: 'grs',
+                grsConfig: { apiKey: apiKey, baseUrl: baseUrl, defaultModel: model },
+                openaiConfig: { apiKey: apiKey, baseUrl: baseUrl, defaultModel: model },
+              });
+              savedToStore = true;
+            }
+          } catch(e) {}
+          try {
+            var raw = localStorage.getItem('cosai-settings');
+            var settings = raw ? JSON.parse(raw) : { state: {}, version: 0 };
+            if (!settings.state) settings.state = {};
+            settings.state.provider = 'grs';
+            settings.state.grsConfig = { apiKey: apiKey, baseUrl: baseUrl, defaultModel: model };
+            settings.state.openaiConfig = { apiKey: apiKey, baseUrl: baseUrl, defaultModel: model };
+            localStorage.setItem('cosai-settings', JSON.stringify(settings));
+          } catch(e) {}
+
+          // 写入本地 Key 文件（跨会话持久化，避免每次重新输入）
+          var fileSaved = false;
+          try {
+            if (window.__cosai_ps_api && window.__cosai_ps_api.saveKeyConfig) {
+              var fr = await window.__cosai_ps_api.saveKeyConfig({
+                apiKey: apiKey, baseUrl: baseUrl, defaultModel: model, provider: 'grs',
+              });
+              fileSaved = !!(fr && fr.success);
+            }
+          } catch(e) { console.warn('[Config] 本地文件写入异常:', e); }
+          if (fileSaved) {
+            setConfigStatus('配置已保存 ✓ 已写入本地文件，下次自动加载', 'success');
+          } else if (savedToStore) {
+            setConfigStatus('配置已保存 ✓（已同步到主功能设置，但本地文件写入失败）', 'success');
+          } else {
+            setConfigStatus('配置已保存 ✓（请检查插件环境）', 'success');
+          }
+        } catch(e) {
+          setConfigStatus('保存失败: ' + e.message, 'error');
+        }
+      }
+
+      async function testConfig2() {
+        var apiKey = document.getElementById('cosai-apikey').value.trim();
+        var baseUrl = document.getElementById('cosai-baseurl').value.trim();
+        if (!apiKey) { setConfigStatus('请先输入 API Key', 'error'); return; }
+
+        setConfigStatus('正在测试连接...', 'loading');
+        try {
+          var nodes = [baseUrl.replace(/\/+$/, ''), 'https://grsai.dakka.com.cn', 'https://grsaiapi.com'];
+          var credits = null;
+          var usedNode = null;
+          var lastError = null;
+          for (var i = 0; i < nodes.length; i++) {
+            try {
+              var node = nodes[i];
+              var resp = await fetch(node + '/client/openapi/getAPIKeyCredits?_=' + Date.now(), {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ apiKey: apiKey, api_key: apiKey }),
+              });
+              var text = await resp.text();
+              var data = null;
+              try { data = JSON.parse(text); } catch(e) {}
+              if (data && data.code === 0) {
+                var c = (data.data && (data.data.credits != null ? data.data.credits : data.data.credit));
+                if (c == null) c = data.credits != null ? data.credits : data.credit;
+                credits = c;
+                usedNode = node;
+                break;
+              } else if (data && data.code === 401) {
+                lastError = 'API Key 无效'; break;
+              } else {
+                lastError = data && data.msg ? data.msg : '响应异常';
+              }
+            } catch(e) { lastError = e.message; }
+          }
+          if (credits != null) {
+            setConfigStatus('连接成功 ✓\n当前积分: ' + credits + '\n节点: ' + usedNode, 'success');
+          } else {
+            setConfigStatus('连接失败: ' + (lastError || '未知错误'), 'error');
+          }
+        } catch(e) {
+          setConfigStatus('测试失败: ' + e.message, 'error');
+        }
+      }
+
+      function bindToolsPanel() {
+        // 高低频分离
+        var freqBtn = document.getElementById('cosai-tool-freq');
+        if (freqBtn) freqBtn.addEventListener('click', function() { runTool('freq'); });
+
+        // 双曲线磨皮
+        var curvesBtn = document.getElementById('cosai-tool-curves');
+        if (curvesBtn) curvesBtn.addEventListener('click', function() { runTool('curves'); });
+
+        // 辉光效果
+        var glowBtn = document.getElementById('cosai-tool-glow');
+        if (glowBtn) glowBtn.addEventListener('click', function() { runTool('glow'); });
+
+        // 获取图片
+        var getImgBtn = document.getElementById('cosai-tool-getimg');
+        if (getImgBtn) getImgBtn.addEventListener('click', function() {
+          if (!window.__cosai_ps_api || !window.__cosai_ps_api.getDocumentPixelsAsBase64) {
+            showToast('PS API 未就绪', 'error');
+            return;
+          }
+          showToast('正在获取图片...', '');
+          window.__cosai_ps_api.getDocumentPixelsAsBase64().then(function(r) {
+            if (r && r.base64) {
+              uiState.refImage = r.base64.startsWith('data:') ? r.base64 : 'data:image/png;base64,' + r.base64;
+              updateRefPreview();
+              switchPanel('draw');
+              showToast('图片已获取，已设为参考图', 'success');
+            } else {
+              showToast('获取失败', 'error');
+            }
+          }).catch(function(e) {
+            showToast('获取失败: ' + e.message, 'error');
+          });
+        });
+
+        // 撤销
+        var undoBtn = document.getElementById('cosai-tool-undo');
+        if (undoBtn) undoBtn.addEventListener('click', function() {
+          if (!window.__cosai_ps_api || !window.__cosai_ps_api.undo) {
+            showToast('PS API 未就绪', 'error');
+            return;
+          }
+          window.__cosai_ps_api.undo().then(function() {
+            showToast('已撤销', 'success');
+          }).catch(function(e) {
+            showToast('撤销失败: ' + e.message, 'error');
+          });
+        });
+
+        // 重做
+        var redoBtn = document.getElementById('cosai-tool-redo');
+        if (redoBtn) redoBtn.addEventListener('click', function() {
+          if (!window.__cosai_ps_api || !window.__cosai_ps_api.redo) {
+            showToast('PS API 未就绪', 'error');
+            return;
+          }
+          window.__cosai_ps_api.redo().then(function() {
+            showToast('已重做', 'success');
+          }).catch(function(e) {
+            showToast('重做失败: ' + e.message, 'error');
+          });
+        });
+
+        // 盖印可见图层
+        var stampBtn = document.getElementById('cosai-tool-stamp');
+        if (stampBtn) stampBtn.addEventListener('click', function() {
+          if (!window.__cosai_ps_api) {
+            showToast('PS API 未就绪', 'error');
+            return;
+          }
+          showToast('盖印中...', '');
+          callHost('stampVisible').then(function() {
+            showToast('盖印完成 ✓', 'success');
+          }).catch(function(e) {
+            showToast('盖印失败: ' + e.message, 'error');
+          });
+        });
+
+        // 合并可见图层
+        var mergeBtn = document.getElementById('cosai-tool-merge');
+        if (mergeBtn) mergeBtn.addEventListener('click', function() {
+          if (!window.__cosai_ps_api) {
+            showToast('PS API 未就绪', 'error');
+            return;
+          }
+          if (!confirm('确定要合并所有可见图层吗？此操作不可撤销。')) return;
+          showToast('合并中...', '');
+          callHost('mergeVisibleLayers').then(function() {
+            showToast('合并完成 ✓', 'success');
+          }).catch(function(e) {
+            showToast('合并失败: ' + e.message, 'error');
+          });
+        });
+      }
+
+      function runTool(tool) {
+        if (!window.__cosai_ps_api) {
+          showToast('PS API 未就绪', 'error');
+          return;
+        }
+
+        var toolMap = {
+          freq: { name: '高低频分离', method: 'frequencySeparation', params: { radius: 8 } },
+          curves: { name: '双曲线磨皮', method: 'dodgeBurnCurves', params: { dodgeAmount: 25, burnAmount: 25 } },
+          glow: { name: '辉光效果', method: 'glowEffect', params: { intensity: 50 } },
+        };
+
+        var toolInfo = toolMap[tool];
+        if (!toolInfo) {
+          showToast('未知工具', 'error');
+          return;
+        }
+
+        var btn = document.getElementById('cosai-tool-' + tool);
+        if (btn) btn.disabled = true;
+
+        showToast(toolInfo.name + ' 处理中...', '');
+
+        var api = window.__cosai_ps_api;
+        var method = api[toolInfo.method] || api[toolInfo.method.charAt(0).toUpperCase() + toolInfo.method.slice(1)];
+
+        // 尝试通过 callHost 调用
+        var callMethod = function() {
+          return new Promise(function(resolve, reject) {
+            // 先尝试直接调用 API 对象
+            if (typeof api[toolInfo.method] === 'function') {
+              api[toolInfo.method](toolInfo.params).then(resolve).catch(reject);
+              return;
+            }
+            // 回退：通过 callHost 调用
+            if (typeof callHost === 'function') {
+              callHost(toolInfo.method, toolInfo.params).then(resolve).catch(reject);
+              return;
+            }
+            reject(new Error('方法不可用: ' + toolInfo.method));
+          });
+        };
+
+        callMethod()
+          .then(function(r) {
+            showToast(toolInfo.name + ' 完成 ✓', 'success');
+          })
+          .catch(function(e) {
+            console.warn('[Tool] 执行失败:', e);
+            showToast(toolInfo.name + ' 失败: ' + (e.message || '未知错误'), 'error');
+          })
+          .finally(function() {
+            if (btn) btn.disabled = false;
+          });
+      }
+
+      // ===== 分级日志系统（debug/info/warn/error + 模块 + 时间戳 + 落盘）=====
+      window.__cosaiLogBuffer = [];
+      var __logCurrentLevel = 'all';
+      var __logFlushTimer = null;
+
+      function __logTs() {
+        var d = new Date();
+        var p = function (n) { return (n < 10 ? '0' : '') + n; };
+        return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate()) + ' ' +
+          p(d.getHours()) + ':' + p(d.getMinutes()) + ':' + p(d.getSeconds()) + '.' + String(d.getMilliseconds()).padStart(3, '0');
+      }
+
+      function __renderLogBox() {
+        var box = document.getElementById('cosai-log-box');
+        if (!box) return;
+        box.textContent = '';
+        var buf = window.__cosaiLogBuffer;
+        var filtered = buf.filter(function (e) { return __logCurrentLevel === 'all' || e.level === __logCurrentLevel; });
+        var countEl = document.getElementById('cosai-log-count');
+        if (countEl) countEl.textContent = buf.length;
+        if (filtered.length === 0) {
+          var empty = document.createElement('div');
+          empty.className = 'cosai-log-empty';
+          empty.textContent = __logCurrentLevel === 'all' ? '暂无日志' : '暂无该级别日志';
+          box.appendChild(empty);
+        } else {
+          for (var i = 0; i < filtered.length; i++) {
+            var e = filtered[i];
+            var row = document.createElement('div');
+            row.className = 'cosai-log-line cosai-log-level-' + e.level;
+            row.textContent = '[' + e.ts + '] [' + (e.level || 'info').toUpperCase() + ']' +
+              (e.module ? ' [' + e.module + ']' : '') + ' ' + e.msg;
+            box.appendChild(row);
+          }
+        }
+        box.scrollTop = box.scrollHeight;
+      }
+
+      // 去抖批量落盘，避免每行一次文件读写
+      function __scheduleLogFlush() {
+        if (__logFlushTimer) return;
+        __logFlushTimer = setTimeout(function () {
+          __logFlushTimer = null;
+          var batch = [];
+          var buf = window.__cosaiLogBuffer;
+          for (var i = 0; i < buf.length; i++) {
+            if (!buf[i].persisted) {
+              buf[i].persisted = true;
+              batch.push({ level: buf[i].level || 'info', module: buf[i].module || 'APP', msg: buf[i].msg, ts: buf[i].tsRaw });
+            }
+          }
+          if (batch.length && window.__cosai_ps_api && window.__cosai_ps_api.appendLog) {
+            window.__cosai_ps_api.appendLog(batch).catch(function () {});
+          }
+        }, 1500);
+      }
+
+      function __pushLog(level, module, msg) {
+        try {
+          var t = new Date();
+          window.__cosaiLogBuffer.push({
+            level: level || 'info', module: module || 'APP', msg: msg,
+            ts: __logTs(), tsRaw: t.getTime(), persisted: false,
+          });
+          var buf = window.__cosaiLogBuffer;
+          if (buf.length > 500) buf.splice(0, buf.length - 500);
+          __renderLogBox();
+          __scheduleLogFlush();
+        } catch (e) {}
+      }
+
+      window.__cosaiLog = function (level, module, msg) {
+        __pushLog(level || 'info', module || 'APP', msg);
+      };
+      window.__cosaiLog.info = function (m, module) { __pushLog('info', module, m); };
+      window.__cosaiLog.warn = function (m, module) { __pushLog('warn', module, m); };
+      window.__cosaiLog.error = function (m, module) { __pushLog('error', module, m); };
+      window.__cosaiLog.debug = function (m, module) { __pushLog('debug', module, m); };
+
+      function bindLogsPanel() {
+        // 关联 __dbg（屏幕调试条 + 分级日志 + 落盘）
+        var origDbg = window.__dbg;
+        window.__dbg = function (msg) {
+          if (origDbg) origDbg(msg);
+          __pushLog('debug', 'DBG', msg);
+        };
+
+        // 过滤按钮
+        var filterBtns = document.querySelectorAll('.cosai-log-filter-btn');
+        filterBtns.forEach(function (btn) {
+          btn.addEventListener('click', function () {
+            __logCurrentLevel = btn.getAttribute('data-level') || 'all';
+            filterBtns.forEach(function (b) { b.classList.remove('active'); });
+            btn.classList.add('active');
+            __renderLogBox();
+          });
+        });
+
+        // 导出：把当前过滤后的日志打成文本并浏览器下载
+        var exportBtn = document.getElementById('cosai-log-export');
+        if (exportBtn) exportBtn.addEventListener('click', function () {
+          var buf = window.__cosaiLogBuffer.filter(function (e) { return __logCurrentLevel === 'all' || e.level === __logCurrentLevel; });
+          var text = buf.map(function (e) {
+            return '[' + e.ts + '] [' + (e.level || 'info').toUpperCase() + ']' + (e.module ? ' [' + e.module + ']' : '') + ' ' + e.msg;
+          }).join('\n');
+          var fname = 'cosai_export_' + __logTs().replace(/[-:\. ]/g, '') + '.log';
+          __pushLog('info', 'LOG', '导出日志 ' + buf.length + ' 行 → ' + fname);
+          try {
+            var blob = new Blob([text || '(空日志)'], { type: 'text/plain' });
+            var url = URL.createObjectURL(blob);
+            var a = document.createElement('a');
+            a.href = url; a.download = fname;
+            document.body.appendChild(a); a.click(); a.remove();
+            setTimeout(function () { URL.revokeObjectURL(url); }, 4000);
+          } catch (e) {}
+        });
+
+        // 清空：仅清空面板内存日志（磁盘文件保留，可随时导出）
+        var clearBtn = document.getElementById('cosai-log-clear');
+        if (clearBtn) clearBtn.addEventListener('click', function () {
+          window.__cosaiLogBuffer = [];
+          __renderLogBox();
+          __pushLog('info', 'LOG', '已清空面板日志（磁盘文件保留）');
+        });
+
+        // 打开日志页时读取一次既有磁盘日志目录摘要
+        if (window.__cosai_ps_api && window.__cosai_ps_api.listLogs) {
+          window.__cosai_ps_api.listLogs().then(function (r) {
+            if (r && r.success && r.files && r.files.length) {
+              __pushLog('info', 'LOG', '本地日志文件 ' + r.files.length + ' 个: ' +
+                r.files.slice(0, 8).map(function (f) { return f.name; }).join(', '));
+            } else {
+              __pushLog('debug', 'LOG', '暂无本地日志文件');
+            }
+          }).catch(function () {});
+        }
+
+        __pushLog('info', 'LOG', '日志系统已就绪（分级落盘到本地）');
+      }
+
+      function showToast(msg, type) {
+        var existing = document.querySelector('.cosai-toast');
+        if (existing) existing.remove();
+        var toast = document.createElement('div');
+        toast.className = 'cosai-toast' + (type ? ' cosai-toast--' + type : '');
+        toast.textContent = msg;
+        document.body.appendChild(toast);
+        setTimeout(function() {
+          toast.style.opacity = '0';
+          toast.style.transform = 'translate(-50%, -4px)';
+          setTimeout(function() { toast.remove(); }, 300);
+        }, 2000);
+      }
+
+      // ===== 调用反馈引擎 =====
+      // type: info | ok | warn | error
+      // line: 左侧灰字标签（如「提交」「轮询」）；msg: 主内容
+      function addFeedback(type, line, msg) {
+        var box = document.getElementById('cosai-feedback');
+        if (!box) return;
+        var bodyEl = document.getElementById('cosai-feedback-body');
+        box.style.display = 'block';
+        if (bodyEl) {
+          var empty = bodyEl.querySelector('.cosai-feedback-empty');
+          if (empty) empty.remove();
+          var row = document.createElement('div');
+          row.className = 'cosai-fb-row cosai-fb-' + type;
+          var now = new Date();
+          function pad(n) { return (n < 10 ? '0' : '') + n; }
+          var time = pad(now.getHours()) + ':' + pad(now.getMinutes()) + ':' + pad(now.getSeconds());
+          var timeEl = document.createElement('span');
+          timeEl.className = 'cosai-fb-time';
+          timeEl.textContent = time;
+          var msgEl = document.createElement('span');
+          msgEl.className = 'cosai-fb-msg';
+          msgEl.textContent = (line ? '[' + line + '] ' : '') + msg;
+          row.appendChild(timeEl);
+          row.appendChild(msgEl);
+          bodyEl.appendChild(row);
+          bodyEl.scrollTop = bodyEl.scrollHeight;
+        }
+        // 同步到 toast
+        if (type === 'error') showToast(msg, 'error');
+        else if (type === 'ok') showToast(msg, 'success');
+        else if (type === 'warn') showToast(msg, 'warning');
+        // 同步到分级日志系统（落盘）
+        if (window.__cosaiLog) {
+          var lvl = type === 'error' ? 'error' : (type === 'warn' ? 'warn' : 'info');
+          window.__cosaiLog(lvl, line || 'API', msg);
+        }
+      }
+
+      function bindFeedbackClear() {
+        var btn = document.getElementById('cosai-feedback-clear');
+        if (!btn) return;
+        btn.addEventListener('click', function() {
+          var bodyEl = document.getElementById('cosai-feedback-body');
+          var box = document.getElementById('cosai-feedback');
+          if (bodyEl) bodyEl.innerHTML = '<div class="cosai-feedback-empty">暂无调用记录</div>';
+          if (box) box.style.display = 'none';
+        });
+      }
+
+      // 初始化
+      if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', initMainUI);
+      } else {
+        initMainUI();
+      }
+    })();
+
     // ===== 工具箱：按钮绑定 =====
     (function() {
       function setStatus(msg) {
@@ -668,6 +3644,7 @@
       function tryBind() {
         bindToolbox();
         bindAiTestPanel();
+        bindDrawPanel();
         bindDbgToggle();
       }
       if (document.readyState === 'loading') {
@@ -696,7 +3673,7 @@
         }
       }
 
-      // ===== AI 连通性测试面板 =====
+      // ===== GRS 配置面板（HHPS 风格） =====
       function bindAiTestPanel() {
         var panel = document.getElementById('cosai-ai-test-panel');
         var btn = document.getElementById('tb-aitest');
@@ -709,8 +3686,10 @@
           panel.style.display = isVisible ? 'none' : 'block';
           btn.style.background = isVisible ? '#047857' : '#065f46';
           if (!isVisible) {
-            // 打开时尝试读取已保存的配置
-            loadAiConfig();
+            // 打开时从 React settings store 读取配置
+            loadGrsConfigFromStore();
+            // 自动拉取积分
+            setTimeout(function() { try { gucFetchCredits(true); } catch(e) {} }, 300);
           }
         });
 
@@ -723,91 +3702,1004 @@
           });
         }
 
-        // 提供商切换时更新默认值
-        var providerSel = document.getElementById('aitest-provider');
-        if (providerSel) {
-          providerSel.addEventListener('change', function() {
-            var baseUrl = document.getElementById('aitest-baseurl');
-            var model = document.getElementById('aitest-model');
-            var val = providerSel.value;
-            if (val === 'grs') {
-              baseUrl.value = 'https://grsai.dakka.com.cn/v1';
-              model.value = 'gemini-3.1-pro';
-            } else if (val === 'gemini') {
-              baseUrl.value = 'https://generativelanguage.googleapis.com/v1beta';
-              model.value = 'gemini-2.0-flash';
-            } else {
-              baseUrl.value = 'https://api.openai.com/v1';
-              model.value = 'gpt-4o-mini';
-            }
+        // 显示/隐藏 API Key
+        var toggleBtn = document.getElementById('grs-toggle-key');
+        var keyInput = document.getElementById('grs-apikey');
+        if (toggleBtn && keyInput) {
+          toggleBtn.addEventListener('click', function() {
+            keyInput.type = keyInput.type === 'password' ? 'text' : 'password';
           });
         }
 
-        // 积分查询按钮
-        var creditBtn = document.getElementById('aitest-credit');
-        if (creditBtn) {
-          creditBtn.addEventListener('click', queryCredit);
-        }
-
         // 保存配置
-        var saveBtn = document.getElementById('aitest-save');
+        var saveBtn = document.getElementById('grs-save');
         if (saveBtn) {
-          saveBtn.addEventListener('click', saveAiConfig);
+          saveBtn.addEventListener('click', saveGrsConfig);
         }
 
-        // 读取配置
-        var loadBtn = document.getElementById('aitest-load');
-        if (loadBtn) {
-          loadBtn.addEventListener('click', loadAiConfig);
+        // 测试连接
+        var testBtn = document.getElementById('grs-test');
+        if (testBtn) {
+          testBtn.addEventListener('click', testGrsConnection);
         }
 
-        // 运行测试
-        var runBtn = document.getElementById('aitest-run');
-        if (runBtn) {
-          runBtn.addEventListener('click', runAiTest);
-        }
-      }
-
-      function saveAiConfig() {
-        try {
-          var config = {
-            provider: document.getElementById('aitest-provider').value,
-            baseUrl: document.getElementById('aitest-baseurl').value,
-            apiKey: document.getElementById('aitest-apikey').value,
-            model: document.getElementById('aitest-model').value,
-          };
-          localStorage.setItem('cosai_ai_test_config', JSON.stringify(config));
-          setAiResult('配置已保存到 localStorage', 'success');
-          window.__dbg('[AI Test] 配置已保存');
-        } catch(e) {
-          setAiResult('保存失败: ' + e.message, 'error');
+        // 积分卡刷新按钮
+        var gucRefresh = document.getElementById('guc-refresh');
+        if (gucRefresh) {
+          gucRefresh.addEventListener('click', function() {
+            gucRefresh.classList.add('spinning');
+            gucFetchCredits().finally(function() {
+              gucRefresh.classList.remove('spinning');
+            });
+          });
         }
       }
 
-      function loadAiConfig() {
+      // 从 React settings store 读取配置
+      function loadGrsConfigFromStore() {
+        var statusEl = document.getElementById('grs-status');
+        var apiKeyEl = document.getElementById('grs-apikey');
+        var baseUrlEl = document.getElementById('grs-baseurl');
+        var modelEl = document.getElementById('grs-model');
+
+        // 尝试从 React settings store 读取
         try {
-          var saved = localStorage.getItem('cosai_ai_test_config');
-          if (saved) {
-            var config = JSON.parse(saved);
-            if (config.provider) document.getElementById('aitest-provider').value = config.provider;
-            if (config.baseUrl) document.getElementById('aitest-baseurl').value = config.baseUrl;
-            if (config.apiKey) document.getElementById('aitest-apikey').value = config.apiKey;
-            if (config.model) document.getElementById('aitest-model').value = config.model;
-            setAiResult('已读取保存的配置', 'success');
-            window.__dbg('[AI Test] 配置已读取');
-          } else {
-            // 没保存过就设默认值
-            var baseUrlEl = document.getElementById('aitest-baseurl');
-            if (!baseUrlEl.value) {
-              var provider = document.getElementById('aitest-provider').value;
-              if (provider === 'gemini') {
-                baseUrlEl.value = 'https://generativelanguage.googleapis.com/v1beta';
-              }
+          var store = window.__cosaiSettingsStore;
+          if (store && typeof store.getState === 'function') {
+            var state = store.getState();
+            if (state.grsConfig) {
+              if (state.grsConfig.apiKey) apiKeyEl.value = state.grsConfig.apiKey;
+              if (state.grsConfig.baseUrl) baseUrlEl.value = state.grsConfig.baseUrl;
+              if (state.grsConfig.defaultModel) modelEl.value = state.grsConfig.defaultModel;
+              setGrsStatus('配置已从设置中加载', 'success');
+              return;
             }
           }
         } catch(e) {
-          setAiResult('读取失败: ' + e.message, 'error');
+          console.warn('[GRS] 从 React store 读取失败:', e);
         }
+
+        // 降级：从 localStorage 读取
+        try {
+          var raw = localStorage.getItem('cosai-settings');
+          if (raw) {
+            var settings = JSON.parse(raw);
+            var state = settings.state || settings;
+            if (state.grsConfig) {
+              if (state.grsConfig.apiKey) apiKeyEl.value = state.grsConfig.apiKey;
+              if (state.grsConfig.baseUrl) baseUrlEl.value = state.grsConfig.baseUrl;
+              if (state.grsConfig.defaultModel) modelEl.value = state.grsConfig.defaultModel;
+              setGrsStatus('配置已从本地加载', '');
+              return;
+            }
+          }
+        } catch(e) {
+          console.warn('[GRS] 从 localStorage 读取失败:', e);
+        }
+
+        setGrsStatus('填写 API Key 后点击「保存配置」', '');
+      }
+
+      // 保存 GRS 配置
+      async function saveGrsConfig() {
+        var apiKey = document.getElementById('grs-apikey').value.trim();
+        var baseUrl = document.getElementById('grs-baseurl').value.trim();
+        var model = document.getElementById('grs-model').value.trim();
+        var saveBtn = document.getElementById('grs-save');
+
+        if (!apiKey) {
+          setGrsStatus('请输入 API Key', 'error');
+          return;
+        }
+
+        saveBtn.disabled = true;
+        setGrsStatus('正在保存配置...', 'loading');
+
+        try {
+          // 1. 保存到 React settings store
+          var savedToStore = false;
+          try {
+            var store = window.__cosaiSettingsStore;
+            if (store && typeof store.getState === 'function' && store.setState) {
+              store.setState({
+                provider: 'grs',
+                grsConfig: {
+                  apiKey: apiKey,
+                  baseUrl: baseUrl,
+                  defaultModel: model,
+                },
+                // 同时更新 openai 兼容配置（有些功能可能用这个）
+                openaiConfig: {
+                  apiKey: apiKey,
+                  baseUrl: baseUrl,
+                  defaultModel: model,
+                },
+              });
+              savedToStore = true;
+            }
+          } catch(e) {
+            console.warn('[GRS] 保存到 React store 失败:', e);
+          }
+
+          // 2. 保存到本地文件（通过 host.js 的 ConfigStore）
+          var savedToFile = false;
+          try {
+            if (window.__cosaiHost && window.__cosaiHost.saveAiConfig) {
+              await window.__cosaiHost.saveAiConfig({
+                provider: 'grs',
+                baseUrl: baseUrl,
+                apiKey: apiKey,
+                model: model,
+                customer: 'default',
+              });
+              savedToFile = true;
+            }
+          } catch(e) {
+            console.warn('[GRS] 保存到本地文件失败:', e);
+          }
+
+          // 3. 保存到 localStorage（降级方案）
+          try {
+            var raw = localStorage.getItem('cosai-settings');
+            var settings = raw ? JSON.parse(raw) : { state: {}, version: 0 };
+            if (!settings.state) settings.state = {};
+            settings.state.provider = 'grs';
+            settings.state.grsConfig = {
+              apiKey: apiKey,
+              baseUrl: baseUrl,
+              defaultModel: model,
+            };
+            settings.state.openaiConfig = {
+              apiKey: apiKey,
+              baseUrl: baseUrl,
+              defaultModel: model,
+            };
+            localStorage.setItem('cosai-settings', JSON.stringify(settings));
+          } catch(e) {
+            console.warn('[GRS] 保存到 localStorage 失败:', e);
+          }
+
+          var msg = '配置已保存 ✓';
+          if (savedToStore) msg += '\n✓ 已同步到主功能设置';
+          if (savedToFile) msg += '\n✓ 已保存到本地文件';
+          setGrsStatus(msg, 'success');
+
+          // 保存后刷新积分
+          setTimeout(function() { try { gucFetchCredits(true); } catch(e) {} }, 200);
+
+        } catch(e) {
+          console.error('[GRS] 保存失败:', e);
+          setGrsStatus('保存失败: ' + e.message, 'error');
+        } finally {
+          saveBtn.disabled = false;
+        }
+      }
+
+      // 测试 GRS 连接
+      async function testGrsConnection() {
+        var apiKey = document.getElementById('grs-apikey').value.trim();
+        var baseUrl = document.getElementById('grs-baseurl').value.trim();
+        var testBtn = document.getElementById('grs-test');
+
+        if (!apiKey) {
+          setGrsStatus('请先输入 API Key', 'error');
+          return;
+        }
+
+        testBtn.disabled = true;
+        setGrsStatus('正在测试连接...', 'loading');
+
+        try {
+          // 通过查询积分来测试连接
+          var nodes = [baseUrl.replace(/\/+$/, ''), 'https://grsai.dakka.com.cn', 'https://grsaiapi.com'];
+          var credits = null;
+          var usedNode = null;
+          var lastError = null;
+
+          for (var i = 0; i < nodes.length; i++) {
+            try {
+              var node = nodes[i];
+              var resp = await fetch(node + '/client/openapi/getAPIKeyCredits?_=' + Date.now(), {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ apiKey: apiKey, api_key: apiKey }),
+              });
+              var text = await resp.text();
+              var data = null;
+              try { data = JSON.parse(text); } catch(e) {}
+              if (data && data.code === 0) {
+                var c = (data.data && (data.data.credits != null ? data.data.credits : data.data.credit));
+                if (c == null) c = data.credits != null ? data.credits : data.credit;
+                credits = c;
+                usedNode = node;
+                break;
+              } else if (data && data.code === 401) {
+                lastError = 'API Key 无效';
+                break;
+              } else {
+                lastError = data && data.msg ? data.msg : '响应格式异常';
+              }
+            } catch(e) {
+              lastError = e.message;
+            }
+          }
+
+          if (credits != null) {
+            setGrsStatus('连接成功 ✓\n当前积分: ' + credits + '\n节点: ' + usedNode, 'success');
+          } else {
+            setGrsStatus('连接失败: ' + (lastError || '未知错误'), 'error');
+          }
+
+        } catch(e) {
+          console.error('[GRS] 测试失败:', e);
+          setGrsStatus('测试失败: ' + e.message, 'error');
+        } finally {
+          testBtn.disabled = false;
+        }
+      }
+
+      function setGrsStatus(text, type) {
+        var el = document.getElementById('grs-status');
+        if (!el) return;
+        el.textContent = text;
+        el.className = 'grs-status' + (type ? ' ' + type : '');
+      }
+
+      // ===== AI 绘画面板（Nano Banana 闭源大模型） =====
+      var drawState = {
+        referenceImage: null,  // base64 参考图（带 data: 前缀）
+        generating: false,
+        resultArea: null,
+      };
+
+      // 预设提示词模板
+      var DRAW_PRESETS = {
+        portrait: '专业人像摄影，柔和光影，皮肤细腻，浅景深虚化背景，电影感色调，高清细节，85mm定焦镜头',
+        anime: '日系动漫风格，细腻线条，明亮色彩，可爱角色，梦幻氛围，赛璐璐上色，高质量插画',
+        product: '商业产品摄影，干净背景，专业布光，质感突出，高端大气，广告级画面，微距细节',
+        landscape: '壮丽风景摄影，黄金时刻光线，层次分明，超广角视野，震撼自然，电影级调色，RAW格式质感',
+        cyberpunk: '赛博朋克风格，霓虹灯光，雨夜街道，未来科技感，全息投影，高对比度，紫蓝色调',
+        oil: '古典油画风格，厚重笔触，丰富色彩，光影层次，博物馆质感，印象派风格，艺术感强烈',
+        watercolor: '水彩画风格，清新淡雅，晕染效果，透明质感，柔和边缘，艺术手绘，纸张纹理',
+        '3d': '3D渲染风格，C4D质感，光滑材质，柔和灯光，等距视角，卡通渲染，高质量3D建模',
+      };
+
+      function bindDrawPanel() {
+        var panel = document.getElementById('cosai-draw-panel');
+        var btn = document.getElementById('tb-draw');
+        if (!panel || !btn || btn.__bound) return;
+        btn.__bound = true;
+
+        // 切换面板显示
+        btn.addEventListener('click', function() {
+          var isVisible = panel.style.display === 'block';
+          panel.style.display = isVisible ? 'none' : 'block';
+          btn.style.background = isVisible ? '#7c3aed' : '#6d28d9';
+          if (!isVisible) {
+            // 打开时初始化返图区域
+            _initDrawResultArea();
+            // 自动加载配置
+            _loadDrawSettings();
+          }
+        });
+
+        // 关闭按钮
+        var closeBtn = document.getElementById('draw-close');
+        if (closeBtn) {
+          closeBtn.addEventListener('click', function() {
+            panel.style.display = 'none';
+            btn.style.background = '#7c3aed';
+          });
+        }
+
+        // 取画布图
+        var getCanvasBtn = document.getElementById('draw-get-canvas');
+        if (getCanvasBtn) {
+          getCanvasBtn.addEventListener('click', _drawGetCanvasImage);
+        }
+
+        // 移除参考图
+        var removeBtn = document.getElementById('draw-upload-remove');
+        if (removeBtn) {
+          removeBtn.addEventListener('click', _drawRemoveReference);
+        }
+
+        // 提示词字数统计
+        var promptInput = document.getElementById('draw-prompt');
+        if (promptInput) {
+          promptInput.addEventListener('input', function() {
+            var count = promptInput.value.length;
+            var countEl = document.getElementById('draw-prompt-count');
+            if (countEl) countEl.textContent = count + ' 字';
+          });
+        }
+
+        // 预设标签点击
+        var presetTags = document.querySelectorAll('.draw-preset-tag');
+        presetTags.forEach(function(tag) {
+          tag.addEventListener('click', function() {
+            var preset = tag.dataset.preset;
+            var text = DRAW_PRESETS[preset];
+            if (text && promptInput) {
+              // 如果已有内容，追加到后面
+              if (promptInput.value.trim()) {
+                promptInput.value = promptInput.value.trim() + '，' + text;
+              } else {
+                promptInput.value = text;
+              }
+              // 触发 input 事件更新字数
+              promptInput.dispatchEvent(new Event('input'));
+            }
+          });
+        });
+
+        // 生成按钮
+        var genBtn = document.getElementById('draw-generate');
+        if (genBtn) {
+          genBtn.addEventListener('click', _drawGenerate);
+        }
+      }
+
+      function _initDrawResultArea() {
+        if (drawState.resultArea) return;
+        var container = document.getElementById('cosai-result-area');
+        var wrap = document.getElementById('cosai-result-panel-wrap');
+        if (!container) return;
+        if (wrap) wrap.style.display = 'block';
+        if (window.ResultArea) {
+          drawState.resultArea = new ResultArea({
+            container: container,
+            title: 'AI 生成结果',
+            icon: '🎨',
+            onPlace: function(base64, mode) {
+              return _drawPlaceToCanvas(base64, mode);
+            },
+          });
+        }
+      }
+
+      function _loadDrawSettings() {
+        // 从 React store 或 localStorage 读取 API 配置
+        var apiKey = '';
+        var baseUrl = '';
+        try {
+          var store = window.__cosaiSettingsStore;
+          if (store && typeof store.getState === 'function') {
+            var state = store.getState();
+            if (state.grsConfig) {
+              apiKey = state.grsConfig.apiKey || '';
+              baseUrl = state.grsConfig.baseUrl || '';
+            }
+          }
+        } catch(e) {}
+        if (!apiKey) {
+          try {
+            var raw = localStorage.getItem('cosai-settings');
+            if (raw) {
+              var settings = JSON.parse(raw);
+              var s = settings.state || settings;
+              if (s.grsConfig) {
+                apiKey = s.grsConfig.apiKey || '';
+                baseUrl = s.grsConfig.baseUrl || '';
+              }
+            }
+          } catch(e) {}
+        }
+        drawState.apiKey = apiKey;
+        drawState.baseUrl = baseUrl || 'https://grsai.dakka.com.cn';
+      }
+
+      function _drawGetConfig() {
+        _loadDrawSettings();
+        if (!drawState.apiKey) {
+          return { error: '请先在「模型配置」中设置 API Key' };
+        }
+        return {
+          apiKey: drawState.apiKey,
+          baseUrl: drawState.baseUrl,
+        };
+      }
+
+      async function _drawGetCanvasImage() {
+        if (!window.__cosai_ps_api || !window.__cosai_ps_api.getDocumentPixelsAsBase64) {
+          _drawToast('PS API 未就绪', 'error');
+          return;
+        }
+        try {
+          var btn = document.getElementById('draw-get-canvas');
+          if (btn) { btn.disabled = true; btn.textContent = '⏳ 获取中...'; }
+          var result = await window.__cosai_ps_api.getDocumentPixelsAsBase64();
+          if (result && result.base64) {
+            var b64 = result.base64;
+            if (!b64.startsWith('data:')) {
+              b64 = 'data:image/png;base64,' + b64;
+            }
+            drawState.referenceImage = b64;
+            _drawUpdatePreview();
+            _drawToast('已获取画布图片', 'success');
+          } else {
+            _drawToast('获取图片失败', 'error');
+          }
+        } catch(e) {
+          console.error('[Draw] 获取画布图失败:', e);
+          _drawToast('获取失败: ' + e.message, 'error');
+        } finally {
+          var btn = document.getElementById('draw-get-canvas');
+          if (btn) { btn.disabled = false; btn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>从画布取参考图'; }
+        }
+      }
+
+      function _drawRemoveReference() {
+        drawState.referenceImage = null;
+        _drawUpdatePreview();
+      }
+
+      function _drawUpdatePreview() {
+        var placeholder = document.getElementById('draw-upload-placeholder');
+        var preview = document.getElementById('draw-upload-preview');
+        var removeBtn = document.getElementById('draw-upload-remove');
+        if (drawState.referenceImage) {
+          if (placeholder) placeholder.style.display = 'none';
+          if (preview) { preview.src = drawState.referenceImage; preview.style.display = 'block'; }
+          if (removeBtn) removeBtn.style.display = 'flex';
+        } else {
+          if (placeholder) placeholder.style.display = 'flex';
+          if (preview) { preview.style.display = 'none'; preview.src = ''; }
+          if (removeBtn) removeBtn.style.display = 'none';
+        }
+      }
+
+      async function _drawGenerate() {
+        if (drawState.generating) return;
+
+        var prompt = document.getElementById('draw-prompt').value.trim();
+        if (!prompt) {
+          _drawToast('请输入提示词', 'error');
+          return;
+        }
+
+        var cfg = _drawGetConfig();
+        if (cfg.error) {
+          _drawToast(cfg.error, 'error');
+          return;
+        }
+
+        var model = document.getElementById('draw-model').value;
+        var ratio = document.getElementById('draw-ratio').value;
+        var size = document.getElementById('draw-size').value;
+
+        drawState.generating = true;
+        var genBtn = document.getElementById('draw-generate');
+        var progressEl = document.getElementById('draw-progress');
+        var progressFill = document.getElementById('draw-progress-fill');
+        var progressText = document.getElementById('draw-progress-text');
+
+        if (genBtn) { genBtn.disabled = true; genBtn.querySelector('.draw-gen-text').textContent = '生成中...'; }
+        if (progressEl) progressEl.style.display = 'flex';
+        if (progressFill) progressFill.style.width = '5%';
+        if (progressText) progressText.textContent = '提交任务中...';
+
+        try {
+          // 准备请求参数
+          var body = {
+            model: model,
+            prompt: prompt,
+            aspectRatio: ratio,
+            imageSize: size,
+            webHook: '-1',  // 立即返回 id，用轮询方式
+          };
+
+          // 如果有参考图，添加到 urls（纯 base64，不带前缀）
+          if (drawState.referenceImage) {
+            var b64 = drawState.referenceImage;
+            if (b64.indexOf(',') > 0) b64 = b64.split(',')[1];
+            body.urls = [b64];
+          }
+
+          var baseUrl = cfg.baseUrl.replace(/\/+$/, '');
+          var apiKey = cfg.apiKey;
+
+          // 1. 提交任务
+          var submitResp = await fetch(baseUrl + '/v1/draw/nano-banana', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': 'Bearer ' + apiKey,
+            },
+            body: JSON.stringify(body),
+          });
+
+          var submitText = await submitResp.text();
+          var submitData = null;
+          try { submitData = JSON.parse(submitText); } catch(e) {}
+
+          if (!submitResp.ok || !submitData || submitData.code !== 0) {
+            var errMsg = (submitData && submitData.msg) || ('HTTP ' + submitResp.status);
+            throw new Error(errMsg);
+          }
+
+          var taskId = submitData.data && submitData.data.id;
+          if (!taskId) {
+            throw new Error('未获取到任务ID');
+          }
+
+          if (progressFill) progressFill.style.width = '15%';
+          if (progressText) progressText.textContent = '任务已提交，生成中...';
+
+          // 2. 轮询结果
+          var result = await _drawPollResult(baseUrl, apiKey, taskId, function(progress, status) {
+            if (progressFill) progressFill.style.width = Math.min(95, 15 + progress * 0.8) + '%';
+            if (progressText) progressText.textContent = status + ' (' + progress + '%)';
+          });
+
+          if (progressFill) progressFill.style.width = '100%';
+          if (progressText) progressText.textContent = '生成完成 ✓';
+
+          // 3. 下载并展示结果图片
+          if (result.results && result.results.length > 0) {
+            _initDrawResultArea();
+            for (var i = 0; i < result.results.length; i++) {
+              var item = result.results[i];
+              if (item.url) {
+                try {
+                  var imgB64 = await _drawFetchImageAsBase64(item.url);
+                  if (drawState.resultArea) {
+                    drawState.resultArea.addResult({
+                      base64: imgB64,
+                      source: 'Nano Banana · ' + model,
+                    });
+                  }
+                } catch(e) {
+                  console.warn('[Draw] 下载结果图失败:', e);
+                }
+              }
+            }
+            _drawToast('生成成功！共 ' + result.results.length + ' 张图片', 'success');
+          } else {
+            throw new Error('未返回生成结果');
+          }
+
+        } catch(e) {
+          console.error('[Draw] 生成失败:', e);
+          _drawToast('生成失败: ' + e.message, 'error');
+          if (progressText) progressText.textContent = '生成失败';
+          if (progressFill) progressFill.style.width = '100%';
+          progressFill.style.background = '#ef4444';
+        } finally {
+          drawState.generating = false;
+          if (genBtn) { genBtn.disabled = false; genBtn.querySelector('.draw-gen-text').textContent = '立即生成'; }
+          // 2秒后隐藏进度条
+          setTimeout(function() {
+            if (progressEl) progressEl.style.display = 'none';
+            if (progressFill) progressFill.style.background = '';
+          }, 2000);
+        }
+      }
+
+      async function _drawPollResult(baseUrl, apiKey, taskId, onProgress) {
+        var maxAttempts = 60;  // 最多轮询60次
+        var attempt = 0;
+
+        while (attempt < maxAttempts) {
+          attempt++;
+          try {
+            var resp = await fetch(baseUrl + '/v1/draw/result', {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'Authorization': 'Bearer ' + apiKey,
+              },
+              body: JSON.stringify({ id: taskId }),
+            });
+
+            var text = await resp.text();
+            var data = null;
+            try { data = JSON.parse(text); } catch(e) {}
+
+            if (!resp.ok || !data || data.code !== 0) {
+              var errMsg = (data && data.msg) || ('HTTP ' + resp.status);
+              if (data && data.code === -22) {
+                // 任务不存在，稍等再试
+                await _drawSleep(1000);
+                continue;
+              }
+              throw new Error(errMsg);
+            }
+
+            var taskData = data.data;
+            var progress = taskData.progress || 0;
+            var status = taskData.status || 'running';
+
+            if (onProgress) onProgress(progress, _drawStatusText(status));
+
+            if (status === 'succeeded') {
+              return taskData;
+            }
+
+            if (status === 'failed') {
+              var failReason = taskData.failure_reason || taskData.error || '生成失败';
+              throw new Error(failReason);
+            }
+
+            // 继续等待
+            await _drawSleep(2000);
+
+          } catch(e) {
+            if (e.message && (e.message.indexOf('HTTP') >= 0 || e.message.indexOf('网络') >= 0)) {
+              // 网络错误，重试
+              await _drawSleep(2000);
+              continue;
+            }
+            throw e;
+          }
+        }
+
+        throw new Error('生成超时，请稍后重试');
+      }
+
+      function _drawStatusText(status) {
+        var map = {
+          'running': '生成中',
+          'succeeded': '已完成',
+          'failed': '失败',
+          'pending': '排队中',
+        };
+        return map[status] || status || '处理中';
+      }
+
+      async function _drawFetchImageAsBase64(url) {
+        var resp = await fetch(url);
+        if (!resp.ok) throw new Error('图片下载失败: HTTP ' + resp.status);
+        var blob = await resp.blob();
+        return new Promise(function(resolve, reject) {
+          var reader = new FileReader();
+          reader.onloadend = function() { resolve(reader.result); };
+          reader.onerror = reject;
+          reader.readAsDataURL(blob);
+        });
+      }
+
+      function _drawSleep(ms) {
+        return new Promise(function(r) { setTimeout(r, ms); });
+      }
+
+      async function _drawPlaceToCanvas(base64, mode) {
+        // 贴回 PS 画布
+        if (!window.__cosai_ps_api || !window.__cosai_ps_api.placeImage) {
+          throw new Error('PS API 未就绪');
+        }
+        // 确保 base64 格式正确
+        var b64 = base64;
+        if (b64.startsWith('data:')) {
+          b64 = b64.split(',')[1];
+        }
+        return await window.__cosai_ps_api.placeImage(b64, mode);
+      }
+
+      function _drawToast(msg, type) {
+        var toast = document.createElement('div');
+        toast.style.cssText = [
+          'position: fixed;',
+          'top: 70px;',
+          'left: 50%;',
+          'transform: translateX(-50%);',
+          'padding: 10px 18px;',
+          'border-radius: 8px;',
+          'font-size: 12px;',
+          'font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", sans-serif;',
+          'font-weight: 500;',
+          'z-index: 9999999;',
+          'pointer-events: none;',
+          'animation: draw-toast-in 0.2s ease-out;',
+        ].join('');
+        if (type === 'success') {
+          toast.style.background = 'rgba(16, 185, 129, 0.9)';
+          toast.style.color = '#fff';
+        } else if (type === 'error') {
+          toast.style.background = 'rgba(239, 68, 68, 0.9)';
+          toast.style.color = '#fff';
+        } else {
+          toast.style.background = 'rgba(255, 255, 255, 0.9)';
+          toast.style.color = '#1f2937';
+        }
+        toast.textContent = msg;
+        document.body.appendChild(toast);
+        setTimeout(function() {
+          toast.style.opacity = '0';
+          toast.style.transition = 'opacity 0.3s';
+          setTimeout(function() { toast.remove(); }, 300);
+        }, 2000);
+      }
+
+      // ===== 积分卡状态 & 方法 =====
+      var gucState = {
+        initialCredits: null,
+        currentCredits: null,
+        todayUsed: 0,
+        lastKey: null,
+        loading: false,
+      };
+
+      function _gucTodayKey() {
+        var d = new Date();
+        var y = d.getFullYear(), m = String(d.getMonth()+1).padStart(2,'0'), dd = String(d.getDate()).padStart(2,'0');
+        return 'cosai_guc_today_' + y + m + dd;
+      }
+      function _gucLoadToday() {
+        try { var raw = localStorage.getItem(_gucTodayKey()); return raw ? parseFloat(raw) || 0 : 0; } catch(e) { return 0; }
+      }
+      function _gucSaveToday(val) {
+        try { localStorage.setItem(_gucTodayKey(), String(val)); } catch(e) {}
+      }
+
+      async function gucFetchCredits(silent) {
+        var baseUrlEl = document.getElementById('grs-baseurl') || document.getElementById('aitest-baseurl');
+        var apiKeyEl = document.getElementById('grs-apikey') || document.getElementById('aitest-apikey');
+        var baseUrl = baseUrlEl ? baseUrlEl.value.trim() : '';
+        var apiKey = apiKeyEl ? apiKeyEl.value.trim() : '';
+        var card = document.getElementById('cosai-credit-card');
+        if (!card || !apiKey) {
+          if (card) card.style.display = 'none';
+          return null;
+        }
+        card.style.display = 'block';
+        if (!silent) { card.classList.add('loading'); gucState.loading = true; }
+
+        try {
+          var nodes = [baseUrl.replace(/\/+$/, ''), 'https://grsai.dakka.com.cn', 'https://grsaiapi.com'];
+          var credits = null;
+          var usedNode = null;
+          for (var i = 0; i < nodes.length; i++) {
+            try {
+              var node = nodes[i];
+              var resp = await fetch(node + '/client/openapi/getAPIKeyCredits?_=' + Date.now(), {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ apiKey: apiKey, api_key: apiKey }),
+              });
+              var text = await resp.text();
+              var data = null;
+              try { data = JSON.parse(text); } catch(e) {}
+              if (data && data.code === 0) {
+                var c = (data.data && (data.data.credits != null ? data.data.credits : data.data.credit));
+                if (c == null) c = data.credits != null ? data.credits : data.credit;
+                if (typeof c === 'number' && !isNaN(c)) { credits = c; usedNode = node; break; }
+              }
+            } catch(e) { /* 试下一个节点 */ }
+          }
+
+          if (credits == null) {
+            if (!silent) gucRenderError('查询失败');
+            return null;
+          }
+
+          gucState.usedNode = usedNode;
+
+          if (gucState.lastKey !== apiKey) {
+            gucState.initialCredits = credits;
+            gucState.lastKey = apiKey;
+            gucState.todayUsed = _gucLoadToday();
+          }
+
+          var prev = gucState.currentCredits;
+          gucState.currentCredits = credits;
+
+          if (prev != null && credits < prev) {
+            var delta = prev - credits;
+            gucState.todayUsed += delta;
+            _gucSaveToday(gucState.todayUsed);
+          }
+
+          gucRender();
+          return credits;
+        } finally {
+          card.classList.remove('loading');
+          gucState.loading = false;
+        }
+      }
+
+      function gucRender() {
+        var s = gucState;
+        if (s.currentCredits == null) return;
+        var sessionUsed = s.initialCredits != null ? Math.max(0, s.initialCredits - s.currentCredits) : 0;
+        var todayUsed = s.todayUsed + sessionUsed;
+        var denom = s.initialCredits && s.initialCredits > 0 ? s.initialCredits : 1;
+        var sessionPct = Math.min(100, (sessionUsed / denom) * 100);
+        var todayPct = Math.min(100, (todayUsed / denom) * 100);
+
+        // 总积分
+        document.getElementById('guc-total-credits').textContent = s.currentCredits.toLocaleString();
+        // 节点信息
+        var nodeEl = document.getElementById('guc-node-info');
+        if (nodeEl && s.usedNode) {
+          nodeEl.textContent = s.usedNode.replace(/^https?:\/\//, '');
+        }
+
+        document.getElementById('guc-session-val').textContent = sessionPct.toFixed(1) + '%';
+        document.getElementById('guc-total-val').textContent = todayPct.toFixed(1) + '%';
+
+        document.getElementById('guc-session-bar').style.width = sessionPct + '%';
+        document.getElementById('guc-total-bar').style.width = todayPct + '%';
+
+        document.getElementById('guc-session-used').textContent = sessionUsed.toFixed(2) + ' credits';
+        document.getElementById('guc-total-used').textContent = todayUsed.toFixed(2) + ' credits';
+      }
+
+      function gucRenderError(msg) {
+        document.getElementById('guc-session-val').textContent = '—';
+        document.getElementById('guc-total-val').textContent = msg || '失败';
+        document.getElementById('guc-session-bar').style.width = '0%';
+        document.getElementById('guc-total-bar').style.width = '0%';
+        document.getElementById('guc-session-used').textContent = '—';
+        document.getElementById('guc-total-used').textContent = '—';
+      }
+
+      // ===== 客户配置存储（优先 host 文件存储，降级 localStorage）=====
+      var customerStore = {
+        list: function() {
+          return _hasHost()
+            ? callHost('configListCustomers', {})
+            : Promise.resolve({ names: ['默认客户'], activeName: '默认客户' });
+        },
+        get: function(name) {
+          if (_hasHost()) {
+            return callHost('configGetCustomer', { name: name }).then(function(r) {
+              if (!r.success && r.error) return Promise.reject(new Error(r.error));
+              return r;
+            });
+          }
+          try {
+            var v = localStorage.getItem('cosai_ai_test_config');
+            return Promise.resolve({ name: name || '默认客户', config: v ? JSON.parse(v) : null });
+          } catch(e) { return Promise.reject(e); }
+        },
+        save: function(name, config) {
+          if (_hasHost()) {
+            return callHost('configSaveCustomer', { name: name, config: config }).then(function(r) {
+              if (!r.success) return Promise.reject(new Error(r.error || '保存失败'));
+              return r;
+            });
+          }
+          try {
+            localStorage.setItem('cosai_ai_test_config', JSON.stringify(config));
+            return Promise.resolve({ success: true, name: name || '默认客户' });
+          } catch(e) { return Promise.reject(e); }
+        },
+        remove: function(name) {
+          if (_hasHost()) {
+            return callHost('configDeleteCustomer', { name: name }).then(function(r) {
+              if (!r.success) return Promise.reject(new Error(r.error || '删除失败'));
+              return r;
+            });
+          }
+          try {
+            localStorage.removeItem('cosai_ai_test_config');
+            return Promise.resolve({ success: true });
+          } catch(e) { return Promise.reject(e); }
+        },
+      };
+
+      function _hasHost() {
+        return !!(window.uxpHost && window.uxpHost.postMessage);
+      }
+
+      function _readPanelConfig() {
+        return {
+          provider: document.getElementById('aitest-provider').value,
+          baseUrl: document.getElementById('aitest-baseurl').value.trim(),
+          apiKey: document.getElementById('aitest-apikey').value.trim(),
+          model: document.getElementById('aitest-model').value.trim(),
+        };
+      }
+
+      function _writePanelConfig(c) {
+        if (!c) return;
+        if (c.provider) document.getElementById('aitest-provider').value = c.provider;
+        if (c.baseUrl != null) document.getElementById('aitest-baseurl').value = c.baseUrl;
+        if (c.apiKey != null) document.getElementById('aitest-apikey').value = c.apiKey;
+        if (c.model) document.getElementById('aitest-model').value = c.model;
+      }
+
+      function _renderCustomerSelect(names, activeName) {
+        var sel = document.getElementById('aitest-customer');
+        if (!sel) return;
+        sel.innerHTML = '';
+        (names && names.length ? names : ['默认客户']).forEach(function(n) {
+          var opt = document.createElement('option');
+          opt.value = n; opt.textContent = n;
+          if (n === activeName) opt.selected = true;
+          sel.appendChild(opt);
+        });
+      }
+
+      function loadAllCustomers() {
+        customerStore.list().then(function(r) {
+          _renderCustomerSelect(r.names, r.activeName);
+          // 自动加载活跃客户配置
+          return customerStore.get(r.activeName).then(function(g) {
+            if (g && g.config) _writePanelConfig(g.config);
+            return r;
+          }).catch(function() { return r; });
+        }).then(function(r) {
+          setAiResult('已加载客户配置（' + (r.names || []).join('、') + '）', 'success');
+          window.__dbg('[AI Test] 客户列表加载成功');
+          // 自动刷新积分
+          try { gucFetchCredits(true); } catch(e) {}
+        }).catch(function(err) {
+          // 降级：尝试 localStorage
+          window.__dbg('[AI Test] 客户列表加载失败，降级本地: ' + err.message);
+          try {
+            var v = localStorage.getItem('cosai_ai_test_config');
+            if (v) { _writePanelConfig(JSON.parse(v)); }
+          } catch(e) {}
+          _renderCustomerSelect(['默认客户'], '默认客户');
+          setAiResult('加载客户配置失败：' + err.message + '（已降级本地读取）', 'error');
+        });
+      }
+
+      function saveAiConfig() {
+        var config = _readPanelConfig();
+        if (!config.baseUrl) { setAiResult('❌ 请先填写 Base URL', 'error'); return; }
+        var custSel = document.getElementById('aitest-customer');
+        var customerName = (custSel && custSel.value) ? custSel.value : '默认客户';
+
+        customerStore.save(customerName, config).then(function(r) {
+          setAiResult('✅ 配置已保存\n客户: ' + r.name + '\n提供商: ' + config.provider +
+            '\n地址: ' + config.baseUrl + '\n模型: ' + config.model +
+            '\nKey: ' + (config.apiKey ? config.apiKey.slice(0, 6) + '****' : '(空)'), 'success');
+          window.__dbg('[AI Test] 配置已保存: ' + r.name);
+          // 刷新客户列表
+          return customerStore.list().then(function(lr) { _renderCustomerSelect(lr.names, r.name); });
+        }).catch(function(err) { setAiResult('保存失败: ' + err.message, 'error'); });
+      }
+
+      function loadAiConfig() {
+        var custSel = document.getElementById('aitest-customer');
+        var customerName = (custSel && custSel.value) || '默认客户';
+        customerStore.get(customerName).then(function(r) {
+          if (r && r.config) {
+            _writePanelConfig(r.config);
+            setAiResult('已读取客户「' + r.name + '」的配置', 'success');
+            try { gucFetchCredits(true); } catch(e) {}
+          } else {
+            setAiResult('客户「' + customerName + '」暂无保存的配置', '');
+          }
+        }).catch(function(err) { setAiResult('读取失败: ' + err.message, 'error'); });
+      }
+
+      function newCustomer() {
+        var cur = document.getElementById('aitest-customer');
+        var name = window.prompt('请输入新客户名称：');
+        if (!name || !String(name).trim()) return;
+        name = String(name).trim();
+        if (cur) {
+          var exists = Array.prototype.some.call(cur.options, function(o) { return o.value === name; });
+          if (!exists) {
+            var opt = document.createElement('option');
+            opt.value = name; opt.textContent = name;
+            cur.appendChild(opt);
+          }
+          cur.value = name;
+        }
+        var key = document.getElementById('aitest-apikey');
+        if (key) key.value = '';
+        setAiResult('已切换到客户「' + name + '」。填写配置后点击 💾 保存', 'success');
+      }
+
+      function deleteCurrentCustomer() {
+        var cur = document.getElementById('aitest-customer');
+        if (!cur || !cur.value) return;
+        var name = cur.value;
+        if (!window.confirm('确定删除客户「' + name + '」的配置吗？此操作不可恢复。')) return;
+        customerStore.remove(name).then(function() {
+          setAiResult('已删除客户「' + name + '」', 'success');
+          return customerStore.list().then(function(lr) {
+            _renderCustomerSelect(lr.names, lr.activeName);
+            return customerStore.get(lr.activeName).then(function(g) {
+              if (g && g.config) _writePanelConfig(g.config);
+            }).catch(function(){});
+          });
+        }).catch(function(err) { setAiResult('删除失败: ' + err.message, 'error'); });
       }
 
       function setAiResult(text, type) {
@@ -818,68 +4710,34 @@
         }
       }
 
-      // ===== 积分查询 =====
+      // ===== 积分查询（GRS 官方 openapi，与 HHPS 一致）=====
       async function queryCredit() {
+        var provider = document.getElementById('aitest-provider').value;
         var apiKey = document.getElementById('aitest-apikey').value.trim();
+        var card = document.getElementById('cosai-credit-card');
+
         if (!apiKey) {
           setAiResult('❌ 请先填写 API Key', 'error');
           return;
         }
+        if (provider !== 'grs') {
+          setAiResult('⚠️ 积分查询仅支持 GRS 提供商', '');
+          if (card) card.style.display = 'none';
+          return;
+        }
 
         setAiResult('⏳ 正在查询积分...', '');
-        window.__dbg('[AI Test] 查询积分...');
+        window.__dbg('[AI Test] 查询积分（GRS getAPIKeyCredits）...');
 
         try {
-          // 尝试多个 GRS 积分查询地址
-          var queryUrls = [
-            'https://grsapi.xyz/api/query?key=',
-            'https://cx.tpkcur.click/api/query?key=',
-          ];
-
-          var lastErr = null;
-          for (var i = 0; i < queryUrls.length; i++) {
-            try {
-              var resp = await fetch(queryUrls[i] + encodeURIComponent(apiKey));
-              var text = await resp.text();
-              if (resp.ok) {
-                var data;
-                try { data = JSON.parse(text); } catch(e) { data = { raw: text }; }
-                // 尝试解析不同的返回格式
-                var credit = data.balance || data.credit || data.amount || data.total || (data.data && (data.data.balance || data.data.credit));
-                var used = data.used || (data.data && data.data.used);
-                var level = data.level || (data.data && data.data.level);
-                var expire = data.expire || data.expired_at || (data.data && (data.data.expire || data.data.expired_at));
-
-                var msg = '💰 积分查询结果\n\n';
-                if (credit != null) msg += '当前积分: ' + credit + '\n';
-                if (used != null) msg += '已使用: ' + used + '\n';
-                if (level) msg += '等级: ' + level + '\n';
-                if (expire) msg += '到期时间: ' + expire + '\n';
-                if (credit == null && used == null && data.raw) {
-                  msg += '原始数据:\n' + data.raw.slice(0, 500);
-                }
-                setAiResult(msg, credit != null ? 'success' : '');
-                window.__dbg('[AI Test] 积分查询成功: ' + (credit || '未知'));
-                return;
-              } else {
-                lastErr = 'HTTP ' + resp.status + ': ' + text.slice(0, 200);
-              }
-            } catch(e) {
-              lastErr = e.message;
-            }
+          var credits = await gucFetchCredits(false);
+          if (credits == null) {
+            setAiResult('❌ 积分查询失败，请检查 API Key 和网络', 'error');
+          } else {
+            // 成功后清空结果框（积分信息已展示在上方卡片中）
+            setAiResult('✅ 积分已刷新（见上方卡片）', 'success');
+            window.__dbg('[AI Test] 积分查询成功: ' + credits);
           }
-
-          // 所有接口都失败了
-          setAiResult('❌ 积分查询失败\n\n' +
-            '错误: ' + (lastErr || '未知错误') + '\n\n' +
-            '可能原因:\n' +
-            '• 查询服务暂时不可用\n' +
-            '• 网络连接问题\n' +
-            '• API Key 格式错误\n\n' +
-            '你也可以手动访问以下地址查询:\n' +
-            'https://grsapi.xyz/\n' +
-            'https://grsai.com/zh/dashboard/', 'error');
-          window.__dbg('[AI Test] 积分查询失败: ' + lastErr);
         } catch(e) {
           setAiResult('❌ 积分查询异常: ' + e.message, 'error');
           window.__dbg('[AI Test] 积分查询异常: ' + e.message);
@@ -922,6 +4780,8 @@
             var msg = '✅ 测试成功！耗时 ' + elapsed + 'ms\n\n' + result.detail;
             setAiResult(msg, 'success');
             window.__dbg('[AI Test] 成功，耗时 ' + elapsed + 'ms');
+            // 测试成功后延迟刷新积分
+            setTimeout(function() { try { gucFetchCredits(true); } catch(e) {} }, 2000);
           } else {
             var errMsg = '❌ 测试失败\n\n' +
               '错误: ' + result.error + '\n' +
@@ -1074,12 +4934,17 @@
         return { success: false, error: '未知测试类型', status: null, raw: '' };
       }
 
-      // OpenAI 兼容格式测试
+      // OpenAI 兼容格式测试（遵循 apifox 规范：POST {base_url}/v1/chat/completions）
       async function testOpenAI(baseUrl, apiKey, model, testType) {
-        var url = baseUrl.replace(/\/$/, '');
+        // 规范化 base URL：确保路径正确
+        // 支持两种写法：https://grsai.dakka.com.cn 或 https://grsai.dakka.com.cn/v1
+        var base = baseUrl.replace(/\/+$/, '');
+        var v1Prefix = /\/v1$/.test(base) ? '' : '/v1';
+
+        function ep(path) { return base + v1Prefix + path; }
 
         if (testType === 'models') {
-          var resp = await fetch(url + '/models', {
+          var resp = await fetch(ep('/models'), {
             headers: { 'Authorization': 'Bearer ' + apiKey },
           });
           var text = await resp.text();
@@ -1102,7 +4967,7 @@
         }
 
         if (testType === 'chat') {
-          var chatUrl = url + '/chat/completions';
+          var chatUrl = ep('/chat/completions');
           var resp = await fetch(chatUrl, {
             method: 'POST',
             headers: {
@@ -1111,8 +4976,8 @@
             },
             body: JSON.stringify({
               model: model,
+              stream: false,
               messages: [{ role: 'user', content: '请用一句话介绍你自己' }],
-              max_tokens: 100,
             }),
           });
           var text = await resp.text();
@@ -1151,7 +5016,7 @@
 
           setAiResult('⏳ 正在调用图像理解 API...', '');
 
-          var visionUrl = url + '/chat/completions';
+          var visionUrl = ep('/chat/completions');
           var resp = await fetch(visionUrl, {
             method: 'POST',
             headers: {
@@ -1351,6 +5216,6 @@
     })();
   </script>
 
-  <script src="app.js"></script>
+  <!-- 手写 UI 是唯一渲染源，不再加载 React 版 app.js，避免重复渲染冲突 -->
 </body>
 </html>
