@@ -1072,61 +1072,337 @@
       background: rgba(120, 53, 15, 0.25);
     }
 
-    /* 工具卡片 */
+    /* ===== 修图工具 · 大师级精修设计 ===== */
+    /* —— Hero 顶栏 —— */
+    .cosai-tools-hero {
+      position: relative; overflow: hidden;
+      margin: 0 0 20px; padding: 20px 18px 18px;
+      border-radius: 18px;
+      background:
+        radial-gradient(130% 180% at 88% -12%, rgba(124, 92, 255, 0.30), transparent 55%),
+        radial-gradient(130% 150% at 6% 122%, rgba(236, 72, 153, 0.16), transparent 55%),
+        linear-gradient(160deg, rgba(26, 29, 60, 0.92), rgba(13, 15, 36, 0.94));
+      border: 1px solid rgba(139, 122, 255, 0.20);
+      box-shadow: 0 14px 36px rgba(0, 0, 0, 0.42), inset 0 1px 0 rgba(255, 255, 255, 0.08);
+    }
+    .cosai-tools-hero::after {
+      content: ''; position: absolute; inset: 0;
+      background: radial-gradient(220px 90px at 50% 0%, rgba(255, 255, 255, 0.06), transparent 58%);
+      pointer-events: none;
+    }
+    .cosai-tools-hero-orb { position: absolute; border-radius: 999px; filter: blur(20px); opacity: 0.5; pointer-events: none; }
+    .cosai-tools-hero-orb--a { width: 96px; height: 96px; right: -24px; top: -30px; background: radial-gradient(circle, rgba(139, 92, 246, 0.6), transparent 70%); }
+    .cosai-tools-hero-orb--b { width: 74px; height: 74px; left: -20px; bottom: -26px; background: radial-gradient(circle, rgba(244, 114, 182, 0.42), transparent 70%); }
+    .cosai-tools-hero-content { position: relative; z-index: 1; }
+    .cosai-tools-hero-title {
+      display: flex; align-items: center; gap: 10px;
+      margin: 0; font-size: 20px; font-weight: 600; letter-spacing: 0.3px; color: #fff;
+    }
+    .cosai-tools-hero-icon {
+      display: grid; place-items: center; width: 32px; height: 32px; border-radius: 10px;
+      color: #fff; font-size: 15px;
+      background: linear-gradient(135deg, #a78bfa, #6d5ef0);
+      box-shadow: 0 5px 14px rgba(109, 94, 240, 0.55), inset 0 1px 0 rgba(255, 255, 255, 0.28);
+    }
+    .cosai-tools-hero-sub {
+      display: flex; align-items: center; gap: 8px;
+      margin: 9px 0 0 42px; font-size: 10.5px; font-weight: 400;
+      letter-spacing: 5px; text-transform: uppercase; color: rgba(196, 200, 255, 0.55);
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0;
+    }
+    .cosai-tools-hero-sub::before { content: ''; flex: 0 0 auto; width: 18px; height: 1px;
+      background: linear-gradient(90deg, rgba(167,139,250,0.7), transparent); }
+    .cosai-tools-hero-badge {
+      position: absolute; top: 16px; right: 15px; z-index: 1;
+      padding: 4px 11px; border-radius: 999px;
+      font-size: 8.5px; font-weight: 700; letter-spacing: 2px;
+      color: #e9d5ff; background: rgba(139, 92, 246, 0.16);
+      border: 1px solid rgba(196, 181, 253, 0.26);
+      box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
+    }
+
+    /* —— 分组容器 —— */
+    .cosai-tool-group { margin-bottom: 20px; }
+    .cosai-tool-group:last-of-type { margin-bottom: 2px; }
+    .cosai-tool-group-label {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 0 2px 11px;
+    }
+    .cosai-tool-group-label span {
+      display: flex; align-items: center; gap: 8px;
+      font-size: 11px; font-weight: 600; letter-spacing: 2px;
+      text-transform: uppercase; color: #d7dbff;
+    }
+    .cosai-tool-group-label span::before {
+      content: ''; width: 4px; height: 13px; border-radius: 3px;
+      background: linear-gradient(180deg, #a78bfa, #6366f1);
+      box-shadow: 0 2px 8px rgba(129, 140, 248, 0.55);
+    }
+    .cosai-tool-group-label em {
+      font-style: normal; font-size: 9px; letter-spacing: 1.5px;
+      color: rgba(148, 163, 184, 0.5);
+    }
+
+    /* —— 工具网格 —— */
     .cosai-tools-grid {
       display: grid;
       grid-template-columns: 1fr 1fr;
-      gap: 10px;
+      gap: 12px;
     }
+    .cosai-tools-grid--primary { grid-template-columns: 1fr; }
+    /* 辅助工具窄卡：更紧凑的图标与留白，避免文字溢出 */
+    .cosai-tools-grid .cosai-tool-card { min-width: 0; }
+    .cosai-tools-grid:not(.cosai-tools-grid--primary) .cosai-tool-card {
+      padding: 10px 12px; gap: 10px;
+    }
+    .cosai-tools-grid:not(.cosai-tools-grid--primary) .cosai-tool-tile {
+      flex: 0 0 34px; width: 34px; height: 34px; border-radius: 10px;
+    }
+    .cosai-tools-grid:not(.cosai-tools-grid--primary) .cosai-tool-tile svg { width: 18px; height: 18px; }
+    .cosai-tools-grid:not(.cosai-tools-grid--primary) .cosai-tool-meta b { font-size: 12px; }
+    .cosai-tools-grid:not(.cosai-tools-grid--primary) .cosai-tool-meta small { display: none; }
+
+    /* —— 工具卡片 —— */
     .cosai-tool-card {
-      display: flex; flex-direction: column;
-      align-items: center; justify-content: center;
-      gap: 8px;
-      padding: 20px 12px;
-      background: linear-gradient(145deg, rgba(15, 23, 42, 0.5), rgba(30, 27, 75, 0.3));
-      border: 1px solid rgba(139, 92, 246, 0.2);
-      border-radius: 12px;
-      cursor: pointer;
-      font-family: inherit;
-      transition: all 0.2s ease;
+      --c: #a78bfa; --c2: #6366f1; --glow: rgba(139, 92, 246, 0.22);
       position: relative;
+      display: flex; align-items: center; gap: 12px;
+      padding: 13px 14px;
+      background: linear-gradient(160deg, rgba(21, 25, 48, 0.85), rgba(14, 16, 35, 0.85));
+      border: 1px solid rgba(148, 163, 184, 0.15);
+      border-radius: 16px;
+      cursor: pointer; font-family: inherit; text-align: left;
+      backdrop-filter: blur(10px);
+      box-shadow: 0 6px 18px rgba(0, 0, 0, 0.28), inset 0 1px 0 rgba(255, 255, 255, 0.07);
+      transition: transform 0.2s cubic-bezier(0.22, 1, 0.36, 1),
+                  border-color 0.2s ease, box-shadow 0.2s ease;
       overflow: hidden;
     }
+    /* 顶部高光扫过 */
+    .cosai-tool-card::after {
+      content: '';
+      position: absolute; inset: 0;
+      background: radial-gradient(150px 70px at 20% 0%, rgba(255, 255, 255, 0.09), transparent 60%);
+      opacity: 0; transition: opacity 0.22s; pointer-events: none;
+    }
+    /* 流光扫掠 */
     .cosai-tool-card::before {
       content: '';
-      position: absolute;
-      top: 0; left: 0; right: 0;
-      height: 2px;
-      background: linear-gradient(90deg, transparent, rgba(139, 92, 246, 0.5), transparent);
-      opacity: 0;
-      transition: opacity 0.2s;
+      position: absolute; top: 0; left: -70%;
+      width: 60%; height: 100%;
+      background: linear-gradient(100deg, transparent, rgba(255, 255, 255, 0.10), transparent);
+      transform: translateX(0);
+      transition: transform 0.7s cubic-bezier(0.22, 1, 0.36, 1);
+      pointer-events: none;
     }
     .cosai-tool-card:hover {
-      background: linear-gradient(145deg, rgba(30, 27, 75, 0.7), rgba(49, 27, 104, 0.5));
-      border-color: rgba(167, 139, 250, 0.4);
-      transform: translateY(-2px);
-      box-shadow: 0 8px 24px rgba(139, 92, 246, 0.15);
+      transform: translateY(-3px);
+      border-color: var(--c);
+      box-shadow: 0 14px 30px rgba(0, 0, 0, 0.4), 0 0 26px var(--glow);
     }
-    .cosai-tool-card:hover::before {
-      opacity: 1;
+    .cosai-tool-card:hover::after { opacity: 1; }
+    .cosai-tool-card:hover::before { transform: translateX(260%); }
+    .cosai-tool-card:active { transform: translateY(0) scale(0.985); transition-duration: 0.08s; }
+    .cosai-tool-card:focus-visible {
+      outline: 2px solid var(--c); outline-offset: 2px;
     }
-    .cosai-tool-card:active {
-      transform: translateY(0);
+    .cosai-tool-card:disabled { opacity: 0.45; cursor: not-allowed; transform: none !important; }
+    .cosai-tool-card:disabled::before { display: none; }
+
+    /* 主工具（精修流程）高视觉权重 */
+    .cosai-tools-grid--primary .cosai-tool-card { min-height: 66px; }
+    .cosai-tools-grid--primary .cosai-tool-tile {
+      flex: 0 0 44px; width: 44px; height: 44px; border-radius: 13px;
     }
-    .cosai-tool-card:disabled {
-      opacity: 0.5;
-      cursor: not-allowed;
-      transform: none !important;
+    .cosai-tools-grid--primary .cosai-tool-meta b { font-size: 13.5px; }
+
+    .cosai-tool-card--violet  { --c: #a78bfa; --glow: rgba(139, 92, 246, 0.26); }
+    .cosai-tool-card--rose    { --c: #f472b6; --glow: rgba(244, 114, 182, 0.26); }
+    .cosai-tool-card--amber   { --c: #fbbf24; --glow: rgba(251, 191, 36, 0.22); }
+    .cosai-tool-card--sky     { --c: #38bdf8; --glow: rgba(56, 189, 248, 0.24); }
+    .cosai-tool-card--emerald { --c: #34d399; --glow: rgba(52, 211, 153, 0.24); }
+    .cosai-tool-card--teal    { --c: #2dd4bf; --glow: rgba(45, 212, 191, 0.24); }
+
+    /* —— 图标块 —— */
+    .cosai-tool-tile {
+      flex: 0 0 40px; width: 40px; height: 40px;
+      display: flex; align-items: center; justify-content: center;
+      border-radius: 12px; color: #fff;
+      background: linear-gradient(150deg, var(--c), var(--c2));
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.28);
+      transition: transform 0.22s cubic-bezier(0.22, 1, 0.36, 1), box-shadow 0.22s ease;
     }
-    .cosai-tool-icon {
-      font-size: 28px;
-      line-height: 1;
+    .cosai-tool-card:hover .cosai-tool-tile {
+      transform: scale(1.06);
+      box-shadow: 0 6px 18px var(--glow), 0 0 14px var(--glow), inset 0 1px 0 rgba(255, 255, 255, 0.3);
     }
-    .cosai-tool-name {
-      font-size: 12px; color: #e0e7ff;
-      font-weight: 600;
-      letter-spacing: 0.2px;
+    .cosai-tool-card:active .cosai-tool-tile { transform: scale(0.97); }
+    .cosai-tool-card--violet  .cosai-tool-tile { --c2: #8b5cf6; }
+    .cosai-tool-card--rose    .cosai-tool-tile { --c2: #db2777; }
+    .cosai-tool-card--amber   .cosai-tool-tile { --c2: #d97706; }
+    .cosai-tool-card--sky     .cosai-tool-tile { --c2: #0284c7; }
+    .cosai-tool-card--emerald .cosai-tool-tile { --c2: #059669; }
+    .cosai-tool-card--teal    .cosai-tool-tile { --c2: #0d9488; }
+    .cosai-tool-tile svg { width: 21px; height: 21px; transition: transform 0.22s ease; }
+    .cosai-tool-card:hover .cosai-tool-tile svg { transform: scale(1.1) rotate(-3deg); }
+
+    /* —— 文字信息 —— */
+    .cosai-tool-meta {
+      display: flex; flex-direction: column; gap: 1px;
+      min-width: 0; flex: 1 1 auto; overflow: hidden;
     }
+    .cosai-tool-meta b {
+      font-size: 13px; font-weight: 600; color: #f3f5ff; letter-spacing: 0.2px;
+      white-space: nowrap; line-height: 1.3; overflow: hidden; text-overflow: ellipsis;
+    }
+    .cosai-tool-meta em {
+      font-style: normal; font-size: 8.5px; letter-spacing: 0.8px; line-height: 1.4;
+      text-transform: uppercase; color: rgba(178, 186, 220, 0.62);
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+    .cosai-tool-meta small {
+      display: block; margin-top: 2px;
+      font-size: 9.5px; font-weight: 400; color: rgba(148, 163, 184, 0.55);
+      line-height: 1.35; white-space: nowrap;
+      overflow: hidden; text-overflow: ellipsis;
+    }
+    .cosai-tool-card:hover .cosai-tool-meta small { color: rgba(167, 180, 220, 0.7); }
+
+    /* 辅助工具里不带图标的纯文字去说明 */
+    .cosai-tool-card--plain .cosai-tool-meta { gap: 3px; }
+    .cosai-tool-card--plain .cosai-tool-meta b { color: #e8ebff; font-weight: 500; }
+
+    /* ===== 风月AI · 首页（极致美学） ===== */
+    .cosai-home {
+      position: relative; border-radius: 22px; overflow: hidden;
+      padding: 34px 20px 26px; text-align: center;
+      background:
+        radial-gradient(90% 70% at 15% 6%, rgba(139, 92, 246, 0.30), transparent 55%),
+        radial-gradient(80% 60% at 88% 16%, rgba(236, 72, 153, 0.22), transparent 55%),
+        radial-gradient(90% 60% at 50% 102%, rgba(56, 189, 248, 0.16), transparent 55%),
+        linear-gradient(165deg, rgba(20, 18, 48, 0.9), rgba(11, 8, 28, 0.95));
+      border: 1px solid rgba(159, 137, 255, 0.18);
+      box-shadow: 0 26px 64px rgba(0, 0, 0, 0.48), inset 0 1px 0 rgba(255, 255, 255, 0.07);
+    }
+    .cosai-home-sky { position: absolute; inset: 0; z-index: 0; overflow: hidden; pointer-events: none; }
+    .cosai-home-orb { position: absolute; border-radius: 999px; filter: blur(30px); }
+    .cosai-home-orb--1 { width: 190px; height: 190px; left: -50px; top: -46px;
+      background: radial-gradient(circle, rgba(139, 92, 246, 0.55), transparent 70%);
+      animation: cosai-float 9s ease-in-out infinite; }
+    .cosai-home-orb--2 { width: 150px; height: 150px; right: -52px; top: 22%;
+      background: radial-gradient(circle, rgba(236, 72, 153, 0.45), transparent 70%);
+      animation: cosai-float 11s ease-in-out -3s infinite; }
+    .cosai-home-orb--3 { width: 170px; height: 170px; left: 8%; bottom: -74px;
+      background: radial-gradient(circle, rgba(56, 189, 248, 0.30), transparent 70%);
+      animation: cosai-float 13s ease-in-out -6s infinite; }
+    @keyframes cosai-float { 0%, 100% { transform: translate(0, 0); } 50% { transform: translate(12px, -14px); } }
+    .cosai-home-brand { position: relative; z-index: 1; }
+    .cosai-home-badge { display: inline-block; padding: 4px 12px; border-radius: 999px;
+      font-size: 8.5px; font-weight: 700; letter-spacing: 2.5px; color: #e9d5ff;
+      background: rgba(139, 92, 246, 0.16); border: 1px solid rgba(196, 181, 253, 0.26);
+      box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08); }
+    .cosai-home-name { margin: 14px 0 4px; font-size: 42px; font-weight: 800;
+      letter-spacing: 7px; line-height: 1.06; color: #fff;
+      background: linear-gradient(180deg, #ffffff 0%, #cfb9ff 58%, #a78bfa 100%);
+      -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent;
+      filter: drop-shadow(0 8px 26px rgba(139, 92, 246, 0.5)); }
+    .cosai-home-name b { font-weight: 900;
+      background: linear-gradient(180deg, #fdd4f2, #f472b6 46%, #ec4899);
+      -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; }
+    .cosai-home-en { margin: 0; font-size: 9px; letter-spacing: 4px; text-transform: uppercase;
+      color: rgba(196, 200, 255, 0.5); }
+    .cosai-home-slogan { margin: 16px auto 0; max-width: 210px; font-size: 13px; font-weight: 500;
+      color: #e6e9ff; letter-spacing: 3px; line-height: 1.8; }
+    .cosai-home-cta { position: relative; z-index: 1; display: flex; gap: 10px;
+      justify-content: center; margin: 22px 0 20px; }
+    .cosai-home-cta button { flex: 1; padding: 12px 0; border-radius: 13px;
+      font-size: 13.5px; font-weight: 600; cursor: pointer; font-family: inherit; border: none;
+      transition: transform 0.15s ease, box-shadow 0.2s ease, filter 0.2s ease, background 0.2s ease; }
+    .cosai-home-cta--primary { color: #fff; background: linear-gradient(135deg, #8b5cf6, #ec4899);
+      box-shadow: 0 10px 24px rgba(139, 92, 246, 0.42), inset 0 1px 0 rgba(255, 255, 255, 0.25); }
+    .cosai-home-cta--primary:hover { transform: translateY(-2px); filter: brightness(1.06);
+      box-shadow: 0 15px 32px rgba(139, 92, 246, 0.52); }
+    .cosai-home-cta--ghost { color: #cdd5f0; background: rgba(148, 163, 184, 0.1);
+      border: 1px solid rgba(148, 163, 184, 0.22); }
+    .cosai-home-cta--ghost:hover { transform: translateY(-2px); background: rgba(148, 163, 184, 0.16); }
+    .cosai-home-cta button:active { transform: scale(0.97); }
+    .cosai-home-grid { position: relative; z-index: 1; display: grid;
+      grid-template-columns: 1fr 1fr; gap: 11px; }
+    .cosai-home-card {
+      --c: #a78bfa; --c2: #8b5cf6; --cg: rgba(139, 92, 246, 0.24);
+      display: flex; align-items: center; gap: 10px; padding: 13px 12px;
+      text-align: left; cursor: pointer; border-radius: 15px; font-family: inherit; color: #fff;
+      background: linear-gradient(160deg, rgba(24, 26, 54, 0.84), rgba(14, 15, 36, 0.86));
+      border: 1px solid rgba(148, 163, 184, 0.14);
+      box-shadow: 0 6px 16px rgba(0, 0, 0, 0.25), inset 0 1px 0 rgba(255, 255, 255, 0.06);
+      transition: transform 0.18s cubic-bezier(0.22, 1, 0.36, 1), border-color 0.18s ease, box-shadow 0.18s ease;
+      min-width: 0;
+    }
+    .cosai-home-card:hover { transform: translateY(-3px); border-color: var(--c);
+      box-shadow: 0 12px 26px rgba(0, 0, 0, 0.35), 0 0 20px var(--cg); }
+    .cosai-home-card:active { transform: translateY(0) scale(0.98); }
+    .cosai-home-card-ico { flex: 0 0 34px; width: 34px; height: 34px; border-radius: 10px;
+      display: flex; align-items: center; justify-content: center; color: #fff; font-size: 15px;
+      background: linear-gradient(150deg, var(--c), var(--c2));
+      box-shadow: 0 4px 10px rgba(0, 0, 0, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.28); }
+    .cosai-home-card .cosai-home-card-tx { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+    .cosai-home-card b { font-size: 12px; font-weight: 600; color: #f3f5ff;
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .cosai-home-card em { font-style: normal; font-size: 8px; letter-spacing: 0.6px;
+      text-transform: uppercase; color: rgba(178, 186, 220, 0.55);
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .cosai-home-card-arrow { margin-left: auto; font-size: 15px; color: rgba(178, 186, 220, 0.5); }
+    .cosai-home-card--violet { --c: #a78bfa; --c2: #8b5cf6; --cg: rgba(139, 92, 246, 0.26); }
+    .cosai-home-card--rose { --c: #f472b6; --c2: #db2777; --cg: rgba(244, 114, 182, 0.26); }
+    .cosai-home-card--amber { --c: #fbbf24; --c2: #d97706; --cg: rgba(251, 191, 36, 0.22); }
+    .cosai-home-card--sky { --c: #38bdf8; --c2: #0284c7; --cg: rgba(56, 189, 248, 0.24); }
+    .cosai-home-foot { position: relative; z-index: 1; margin: 18px 0 0;
+      font-size: 9px; letter-spacing: 3px; text-transform: uppercase; color: rgba(148, 163, 184, 0.4); }
+
+    /* —— 确认弹窗（webview 内可靠 self-hosted 确认） —— */
+    .cosai-modal-mask {
+      position: fixed; inset: 0; z-index: 1000;
+      background: rgba(5, 6, 14, 0.62); backdrop-filter: blur(6px);
+      display: flex; align-items: center; justify-content: center;
+      animation: cosai-modal-fade 0.18s ease-out;
+      padding: 24px;
+    }
+    @keyframes cosai-modal-fade { from { opacity: 0; } to { opacity: 1; } }
+    .cosai-modal-card {
+      width: 100%; max-width: 280px;
+      border-radius: 18px; overflow: hidden;
+      background: linear-gradient(165deg, rgba(30, 32, 62, 0.98), rgba(16, 17, 38, 0.99));
+      border: 1px solid rgba(148, 163, 184, 0.18);
+      box-shadow: 0 24px 60px rgba(0, 0, 0, 0.55), inset 0 1px 0 rgba(255, 255, 255, 0.08);
+      animation: cosai-modal-pop 0.24s cubic-bezier(0.22, 1, 0.36, 1);
+      text-align: center;
+    }
+    @keyframes cosai-modal-pop { from { transform: scale(0.94) translateY(8px); opacity: 0; } to { transform: none; opacity: 1; } }
+    .cosai-modal-body { padding: 24px 20px 20px; }
+    .cosai-modal-icon {
+      width: 42px; height: 42px; margin: 0 auto 12px; border-radius: 13px;
+      display: flex; align-items: center; justify-content: center; font-size: 18px; color: #fff;
+      background: linear-gradient(135deg, #fbbf24, #d97706);
+      box-shadow: 0 6px 16px rgba(217, 119, 6, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.28);
+    }
+    .cosai-modal-title { font-size: 15px; font-weight: 600; color: #f3f5ff; margin: 0 0 6px; }
+    .cosai-modal-msg { font-size: 12px; line-height: 1.6; color: rgba(178, 186, 220, 0.75); margin: 0; }
+    .cosai-modal-actions { display: flex; gap: 10px; padding: 14px 18px 16px; }
+    .cosai-modal-btn {
+      flex: 1; padding: 9px 0; border-radius: 11px; border: 1px solid transparent;
+      font-size: 13px; font-weight: 600; cursor: pointer; font-family: inherit;
+      transition: transform 0.12s ease, filter 0.12s ease, opacity 0.12s ease;
+    }
+    .cosai-modal-btn:active { transform: scale(0.97); }
+    .cosai-modal-btn--cancel {
+      color: #cdd5f0; background: rgba(148, 163, 184, 0.12);
+      border-color: rgba(148, 163, 184, 0.22);
+    }
+    .cosai-modal-btn--confirm {
+      color: #fff; background: linear-gradient(135deg, #fbbf24, #d97706);
+      box-shadow: 0 5px 14px rgba(217, 119, 6, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.28);
+    }
+    .cosai-modal-btn--confirm:hover { filter: brightness(1.06); }
 
     /* 日志面板 */
     .cosai-log-box {
@@ -1751,6 +2027,12 @@
         undo: function () { return callHost('undo', { steps: 1 }); },
         redo: function () { return callHost('redo', { steps: 1 }); },
         getHistoryStates: function () { return callHost('getHistoryStates'); },
+        // 修图工具箱（对应 host.js ToolboxAPI / LayerAPI）
+        frequencySeparation: function (params) { return callHost('frequencySeparation', params || { radius: 8 }); },
+        dodgeBurnCurves: function (params) { return callHost('dodgeBurnCurves', params || { dodgeAmount: 25, burnAmount: 25 }); },
+        glowEffect: function (params) { return callHost('glowEffect', params || { intensity: 50 }); },
+        stampVisible: function () { return callHost('stampVisible'); },
+        mergeVisibleLayers: function () { return callHost('mergeVisibleLayers'); },
       };
 
       // ===== React 通信桥接 =====
@@ -1908,7 +2190,12 @@
         <span class="cosai-logo-text">C</span>
       </div>
       <div class="cosai-sidebar-divider"></div>
-      <button class="cosai-sidebar-btn active" data-panel="draw" title="闭源大模型">
+      <button class="cosai-sidebar-btn active" data-panel="home" title="风月 AI">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M3 10.5 12 3l9 7.5"/><path d="M5 9.5V21h5v-6h4v6h5V9.5"/>
+        </svg>
+      </button>
+      <button class="cosai-sidebar-btn" data-panel="draw" title="闭源大模型">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
           <path d="M12 19l7-7 3 3-7 7-3-3z"/>
           <path d="M18 13l-1.5-7.5L2 2l3.5 14.5L13 18l5-5z"/>
@@ -1944,8 +2231,56 @@
 
     <!-- 中间主面板 -->
     <div class="cosai-main-panel" id="cosai-main-panel">
-      <!-- AI 绘图面板（默认显示） -->
-      <div class="cosai-panel cosai-panel--draw" data-panel-body="draw">
+      <!-- 风月AI 首页（默认显示） -->
+      <div class="cosai-panel cosai-panel--home" data-panel-body="home">
+        <div class="cosai-home">
+          <div class="cosai-home-sky">
+            <span class="cosai-home-orb cosai-home-orb--1"></span>
+            <span class="cosai-home-orb cosai-home-orb--2"></span>
+            <span class="cosai-home-orb cosai-home-orb--3"></span>
+          </div>
+
+          <div class="cosai-home-brand">
+            <span class="cosai-home-badge">COSAI · PRO</span>
+            <h1 class="cosai-home-name">风月&nbsp;<b>AI</b></h1>
+            <p class="cosai-home-en">FENGYUE · CREATE WITH LIGHT</p>
+            <p class="cosai-home-slogan">以光影为笔<br>让想象成真</p>
+          </div>
+
+          <div class="cosai-home-cta">
+            <button class="cosai-home-cta--primary" data-home="draw">开始创作</button>
+            <button class="cosai-home-cta--ghost" data-home="tools">修图工具</button>
+          </div>
+
+          <div class="cosai-home-grid">
+            <button class="cosai-home-card cosai-home-card--rose" data-home="draw">
+              <span class="cosai-home-card-ico">✿</span>
+              <span class="cosai-home-card-tx"><b>闭源大模型</b><em>ai image gen</em></span>
+              <span class="cosai-home-card-arrow">→</span>
+            </button>
+            <button class="cosai-home-card cosai-home-card--violet" data-home="tools">
+              <span class="cosai-home-card-ico">✦</span>
+              <span class="cosai-home-card-tx"><b>精修工坊</b><em>retouch suite</em></span>
+              <span class="cosai-home-card-arrow">→</span>
+            </button>
+            <button class="cosai-home-card cosai-home-card--amber" data-home="config">
+              <span class="cosai-home-card-ico">⚙</span>
+              <span class="cosai-home-card-tx"><b>模型配置</b><em>settings</em></span>
+              <span class="cosai-home-card-arrow">→</span>
+            </button>
+            <button class="cosai-home-card cosai-home-card--sky" data-home="logs">
+              <span class="cosai-home-card-ico">▤</span>
+              <span class="cosai-home-card-tx"><b>运行日志</b><em>logs</em></span>
+              <span class="cosai-home-card-arrow">→</span>
+            </button>
+          </div>
+
+          <p class="cosai-home-foot">风月 AI · 光影工程</p>
+        </div>
+      </div>
+
+      <!-- AI 绘图面板 -->
+      <div class="cosai-panel cosai-panel--draw" data-panel-body="draw" style="display:none;">
         <div class="cosai-panel-header">
           <h2 class="cosai-panel-title">
             <span class="cosai-panel-title-icon">🎨</span>
@@ -2067,6 +2402,30 @@
           </div>
         </div>
 
+        <!-- 美学提示词引擎（风格增强 + Change-ONLY 返图模式） -->
+        <div class="cosai-param-row">
+          <div class="cosai-param-item">
+            <label class="cosai-param-label">美学风格</label>
+            <select class="cosai-param-select" id="cosai-style">
+              <option value="">🎨 不增强（原样）</option>
+              <option value="cinematic">🎬 电影感</option>
+              <option value="jp-clean">🌸 日系清新</option>
+              <option value="poster">📰 商业海报</option>
+              <option value="minimal">⬜ 极简留白</option>
+              <option value="cyber">🌆 赛博霓虹</option>
+              <option value="illustration">✏️ 手绘插画</option>
+              <option value="photoreal">📸 摄影写实</option>
+            </select>
+          </div>
+          <div class="cosai-param-item">
+            <label class="cosai-param-label">返图模式</label>
+            <select class="cosai-param-select" id="cosai-edit-mode">
+              <option value="">🖼️ 全新生成</option>
+              <option value="change-only">🔧 仅局部修改（保留其余）</option>
+            </select>
+          </div>
+        </div>
+
         <!-- 生成按钮 -->
         <button class="cosai-generate-btn" id="cosai-generate">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="20" height="20">
@@ -2177,46 +2536,92 @@
 
       <!-- 修图工具面板 -->
       <div class="cosai-panel cosai-panel--tools" data-panel-body="tools" style="display:none;">
-        <div class="cosai-panel-header">
-          <h2 class="cosai-panel-title">
-            <span class="cosai-panel-title-icon">🛠️</span>
-            修图工具
-          </h2>
-          <p class="cosai-panel-subtitle">常用修图辅助功能</p>
+        <div class="cosai-tools-hero">
+          <span class="cosai-tools-hero-orb cosai-tools-hero-orb--a"></span>
+          <span class="cosai-tools-hero-orb cosai-tools-hero-orb--b"></span>
+          <div class="cosai-tools-hero-content">
+            <h2 class="cosai-tools-hero-title">
+              <span class="cosai-tools-hero-icon">✦</span>
+              精修工坊
+            </h2>
+            <p class="cosai-tools-hero-sub">把控光影 · 质感新生</p>
+          </div>
+          <span class="cosai-tools-hero-badge">PRO</span>
         </div>
-        <div class="cosai-tools-grid">
-          <button class="cosai-tool-card" id="cosai-tool-freq">
-            <span class="cosai-tool-icon">📊</span>
-            <span class="cosai-tool-name">高低频</span>
-          </button>
-          <button class="cosai-tool-card" id="cosai-tool-curves">
-            <span class="cosai-tool-icon">〰️</span>
-            <span class="cosai-tool-name">双曲线</span>
-          </button>
-          <button class="cosai-tool-card" id="cosai-tool-glow">
-            <span class="cosai-tool-icon">✨</span>
-            <span class="cosai-tool-name">辉光</span>
-          </button>
-          <button class="cosai-tool-card" id="cosai-tool-getimg">
-            <span class="cosai-tool-icon">🖼️</span>
-            <span class="cosai-tool-name">获取图片</span>
-          </button>
-          <button class="cosai-tool-card" id="cosai-tool-undo">
-            <span class="cosai-tool-icon">↩️</span>
-            <span class="cosai-tool-name">撤销</span>
-          </button>
-          <button class="cosai-tool-card" id="cosai-tool-redo">
-            <span class="cosai-tool-icon">↪️</span>
-            <span class="cosai-tool-name">重做</span>
-          </button>
-          <button class="cosai-tool-card" id="cosai-tool-stamp">
-            <span class="cosai-tool-icon">📋</span>
-            <span class="cosai-tool-name">盖印可见</span>
-          </button>
-          <button class="cosai-tool-card" id="cosai-tool-merge">
-            <span class="cosai-tool-icon">🔗</span>
-            <span class="cosai-tool-name">合并可见</span>
-          </button>
+
+        <div class="cosai-tool-group">
+          <div class="cosai-tool-group-label">
+            <span>精修流程</span>
+            <em>RETOUCH FLOW</em>
+          </div>
+          <div class="cosai-tools-grid cosai-tools-grid--primary">
+            <button class="cosai-tool-card cosai-tool-card--violet" id="cosai-tool-freq">
+              <span class="cosai-tool-tile">
+                <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><rect x="3.5" y="12" width="3.4" height="8" rx="1.7"/><rect x="10.3" y="6" width="3.4" height="14" rx="1.7" opacity="0.82"/><rect x="17.1" y="9" width="3.4" height="11" rx="1.7" opacity="0.6"/></svg>
+              </span>
+              <span class="cosai-tool-meta">
+                <b>高低频分离</b><em>Frequency Split</em>
+                <small>质感肌理 · 光影独立调控</small>
+              </span>
+            </button>
+            <button class="cosai-tool-card cosai-tool-card--rose" id="cosai-tool-curves">
+              <span class="cosai-tool-tile">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M4 19c4 0 5-13 9-13s5 9 7 9"/><circle cx="4" cy="19" r="1" fill="currentColor" stroke="none"/><circle cx="20" cy="15" r="1" fill="currentColor" stroke="none"/></svg>
+              </span>
+              <span class="cosai-tool-meta">
+                <b>双曲线磨皮</b><em>Dodge &amp; Burn</em>
+                <small>局部提亮压暗 · 细腻过渡</small>
+              </span>
+            </button>
+            <button class="cosai-tool-card cosai-tool-card--amber cosai-tools-grid-full" id="cosai-tool-glow">
+              <span class="cosai-tool-tile">
+                <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M8.5 4l1.1 3.4L13 8.5l-3.4 1.1L8.5 13l-1.1-3.4L4 8.5l3.4-1.1z"/><path d="M17.5 13l.8 2.4 2.7.9-2.7.9-.8 2.4-.8-2.4-2.7-.9 2.7-.9z"/><path d="M14 3l.5 1.4 1.4.5-1.4.5-.5 1.4-.5-1.4-1.4-.5 1.4-.5z" opacity="0.7"/></svg>
+              </span>
+              <span class="cosai-tool-meta">
+                <b>辉光效果</b><em>Glow Effect</em>
+                <small>柔光氛围 · 梦幻光晕</small>
+              </span>
+            </button>
+          </div>
+        </div>
+
+        <div class="cosai-tool-group">
+          <div class="cosai-tool-group-label">
+            <span>基础操作</span>
+            <em>QUICK ACCESS</em>
+          </div>
+          <div class="cosai-tools-grid">
+            <button class="cosai-tool-card cosai-tool-card--sky" id="cosai-tool-getimg">
+              <span class="cosai-tool-tile">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><rect x="3.5" y="4.5" width="17" height="15" rx="2.5"/><circle cx="9" cy="9.5" r="1.4" fill="currentColor" stroke="none"/><path d="M4.8 17.2l4.3-4.6 3.4 3.3 2.9-3 3.8 4.3z" fill="currentColor" stroke="none"/></svg>
+              </span>
+              <span class="cosai-tool-meta"><b>获取参考图</b><em>Reference</em><small>导出选区 · 联动参考</small></span>
+            </button>
+            <button class="cosai-tool-card" id="cosai-tool-undo">
+              <span class="cosai-tool-tile">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 7L4 11l4 4"/><path d="M4 11h7a5 5 0 0 1 5 5v2"/></svg>
+              </span>
+              <span class="cosai-tool-meta"><b>撤销</b><em>Undo</em></span>
+            </button>
+            <button class="cosai-tool-card" id="cosai-tool-redo">
+              <span class="cosai-tool-tile">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M16 7l4 4-4 4"/><path d="M20 11h-7a5 5 0 0 0-5 5v2"/></svg>
+              </span>
+              <span class="cosai-tool-meta"><b>重做</b><em>Redo</em></span>
+            </button>
+            <button class="cosai-tool-card cosai-tool-card--emerald" id="cosai-tool-stamp">
+              <span class="cosai-tool-tile">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><rect x="6" y="3" width="12" height="9" rx="1.8"/><path d="M8 15h8M10 18h4" stroke-linecap="round"/></svg>
+              </span>
+              <span class="cosai-tool-meta"><b>盖印可见</b><em>Stamp</em><small>合成到新图层</small></span>
+            </button>
+            <button class="cosai-tool-card cosai-tool-card--teal cosai-tools-grid-full" id="cosai-tool-merge">
+              <span class="cosai-tool-tile">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" aria-hidden="true"><path d="M12 3.5l7 3.75-7 3.75-7-3.75z"/><path d="M5 12.5l7 3.75 7-3.75"/></svg>
+              </span>
+              <span class="cosai-tool-meta"><b>合并可见图层</b><em>Merge Visible</em><small>展平所有可见内容</small></span>
+            </button>
+          </div>
         </div>
       </div>
 
@@ -2257,7 +2662,7 @@
     // ===== CosAI 主界面初始化（三栏布局） =====
     (function() {
       var uiState = {
-        currentPanel: 'draw',
+        currentPanel: 'home',
         refImage: null,
         results: [],
         activeResult: 0,
@@ -2363,6 +2768,13 @@
           btn.addEventListener('click', function() {
             var panel = btn.dataset.panel;
             switchPanel(panel);
+          });
+        });
+        // 首页快捷入口
+        var homeBtns = document.querySelectorAll('.cosai-home [data-home]');
+        homeBtns.forEach(function(hBtn) {
+          hBtn.addEventListener('click', function() {
+            switchPanel(hBtn.dataset.home);
           });
         });
       }
@@ -2583,11 +2995,58 @@
           .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
       }
 
+      // ===== 美学提示词引擎（轻量 · 基于 Nano Banana Pro 六要素 + Change-ONLY）=====
+      var COSAI_AESTHETICS = {
+        cinematic: { label: '电影感',
+          en: 'Style: cinematic, dramatic film look with anamorphic depth. Composition: dynamic framing with a strong focal subject. Lighting: moody key light with soft rim light and gentle contrast. Background: shallow-focus environment that supports the mood. Color palette: teal-and-amber film grade with rich shadows. Avoid: flat lighting, noisy grain, plastic skin.' },
+        'jp-clean': { label: '日系清新',
+          en: 'Style: fresh Japanese clean aesthetic, airy and gentle. Composition: centered subject with generous breathing room. Lighting: soft diffused natural daylight, high-key. Background: simple, clean, bright backdrop. Color palette: pastel and low-saturation tones with soft whites. Avoid: heavy contrast, cluttered background, harsh shadows.' },
+        poster: { label: '商业海报',
+          en: 'Style: premium commercial poster design, sharp and editorial. Composition: bold centered subject with clear visual hierarchy and a strong focal point. Lighting: studio three-point lighting with crisp highlights. Background: clean gradient or minimal studio backdrop. Color palette: confident brand colors with high contrast; precise typography if text appears. Avoid: blur, low resolution, distracting elements.' },
+        minimal: { label: '极简留白',
+          en: 'Style: minimalist design with generous negative space. Composition: single centered subject with abundant whitespace. Lighting: even, soft, uniform light. Background: near-empty solid or subtle gradient. Color palette: restrained monochrome with one accent color. Avoid: clutter, extra objects, busy texture.' },
+        cyber: { label: '赛博霓虹',
+          en: 'Style: cyberpunk neon aesthetic, futuristic and vivid. Composition: dynamic perspective with the subject framed by urban glow. Lighting: neon sign lights, magenta-cyan contrast, atmospheric glow. Background: night city with glass towers and glowing lines. Color palette: neon magenta, cyan, deep purple shadows. Avoid: muddy blacks, flat colors, overcrowded details.' },
+        illustration: { label: '手绘插画',
+          en: 'Style: hand-drawn illustration with expressive line and wash. Composition: charming subject full of personality. Lighting: soft, painterly, gentle ambient light. Background: simple textured backdrop. Color palette: warm, harmonious, slightly muted tones with visible brush texture. Avoid: photoreal rendering, 3D gloss, AI jitter, extra line artifacts.' },
+        photoreal: { label: '摄影写实',
+          en: 'Style: photorealistic professional photography. Composition: natural framing with realistic perspective. Lighting: physically accurate light source with soft shadows. Background: natural environment with depth. Color palette: faithful true-to-life colors and natural skin tones. Avoid: plastic skin, oversharpening, surreal lighting, unusable proportions.' }
+      };
+
+      // 六要素模板：把用户主体 + 所选风格合成一段增强提示词
+      function buildAestheticPrompt(subject, styleKey) {
+        var block = COSAI_AESTHETICS[styleKey];
+        if (!block) return subject;
+        return 'Create an image of: ' + subject + '. ' + block.en;
+      }
+
+      // Change-ONLY 模板：只做局部修改，其余全部保持不变
+      function wrapChangeOnly(instruction) {
+        var inst = instruction || '';
+        return 'Change ONLY: ' + inst +
+          '. Keep identical: subject, composition, crop, pose, lighting, color palette, background, any text, and overall style. ' +
+          'Do not add new objects. If text exists, keep it unchanged.';
+      }
+
+      // 组装最终发送提示词：基础文本 → 美学风格增强 → (可选)Change-ONLY 包裹
+      function getEffectiveDrawPrompt() {
+        var input = document.getElementById('cosai-prompt');
+        var base = input ? input.value.trim() : '';
+        var styleKey = document.getElementById('cosai-style').value;
+        var editMode = document.getElementById('cosai-edit-mode').value;
+        var out = buildAestheticPrompt(base, styleKey);
+        if (editMode === 'change-only') out = wrapChangeOnly(out);
+        if (window.__cosaiLog) window.__cosaiLog('debug', 'AESTHETIC',
+          'style=' + (styleKey || 'none') + ' mode=' + (editMode || 'generate') + ' len=' + out.length);
+        return out;
+      }
+
       // 入口：校验后把生成请求压入队列（可反复点击累积多个任务）
       function generateImage() {
         var promptInput = document.getElementById('cosai-prompt');
         var prompt = promptInput ? promptInput.value.trim() : '';
         if (!prompt) { showToast('请输入提示词', 'error'); return; }
+        var effectivePrompt = getEffectiveDrawPrompt();
         var cfg = getDrawConfig();
         if (cfg.error) { showToast(cfg.error, 'error'); return; }
 
@@ -2605,7 +3064,7 @@
           status: 'pending', // pending|running|done|error
           phase: '排队中',
           progress: 0,
-          promptFull: prompt,
+          promptFull: effectivePrompt,
           prompt: prompt.length > 34 ? prompt.slice(0, 34) + '…' : prompt,
           model: model, ratio: ratio, size: size,
           count: count, got: 0,
@@ -3256,13 +3715,43 @@
             showToast('PS API 未就绪', 'error');
             return;
           }
-          if (!confirm('确定要合并所有可见图层吗？此操作不可撤销。')) return;
-          showToast('合并中...', '');
-          callHost('mergeVisibleLayers').then(function() {
-            showToast('合并完成 ✓', 'success');
-          }).catch(function(e) {
-            showToast('合并失败: ' + e.message, 'error');
+          cosaiConfirm('此操作会合并所有可见图层，且不可撤销。', '确认合并可见图层？').then(function(ok) {
+            if (!ok) return;
+            showToast('合并中...', '');
+            callHost('mergeVisibleLayers').then(function() {
+              showToast('合并完成 ✓', 'success');
+            }).catch(function(e) {
+              showToast('合并失败: ' + e.message, 'error');
+            });
           });
+        });
+      }
+
+      function cosaiConfirm(msg, title) {
+        return new Promise(function(resolve) {
+          var old = document.querySelector('.cosai-modal-mask');
+          if (old) old.remove();
+          var mask = document.createElement('div');
+          mask.className = 'cosai-modal-mask';
+          mask.innerHTML =
+            '<div class="cosai-modal-card">' +
+              '<div class="cosai-modal-body">' +
+                '<div class="cosai-modal-icon">!</div>' +
+                (title ? '<h3 class="cosai-modal-title"></h3>' : '') +
+                '<p class="cosai-modal-msg"></p>' +
+              '</div>' +
+              '<div class="cosai-modal-actions">' +
+                '<button class="cosai-modal-btn cosai-modal-btn--cancel">取消</button>' +
+                '<button class="cosai-modal-btn cosai-modal-btn--confirm">确认</button>' +
+              '</div>' +
+            '</div>';
+          if (title) mask.querySelector('.cosai-modal-title').textContent = title;
+          mask.querySelector('.cosai-modal-msg').textContent = msg || '';
+          function close(val) { mask.remove(); resolve(val); }
+          mask.querySelector('.cosai-modal-btn--cancel').addEventListener('click', function(){ close(false); });
+          mask.querySelector('.cosai-modal-btn--confirm').addEventListener('click', function(){ close(true); });
+          mask.addEventListener('click', function(e){ if (e.target === mask) close(false); });
+          document.body.appendChild(mask);
         });
       }
 
