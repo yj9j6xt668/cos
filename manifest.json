@@ -1,7 +1,7 @@
 {
   "id": "com.cosai.psplugin",
   "name": "CosAI - AI 漫展修图助手",
-  "version": "1.8.0",
+  "version": "1.8.1",
   "main": "index.html",
   "manifestVersion": 5,
   "host": {
@@ -11,13 +11,7 @@
   "requiredPermissions": {
     "localFileSystem": "fullAccess",
     "network": {
-      "domains": [
-        "https://api.banana-ai.com",
-        "https://api.grs-ai.com",
-        "https://generativelanguage.googleapis.com",
-        "http://127.0.0.1:8188",
-        "all"
-      ]
+      "domains": "all"
     },
     "clipboard": "readAndWrite",
     "rawClipboard": true,
@@ -26,9 +20,7 @@
       "allow": "yes",
       "allowLocalRendering": "yes",
       "enableMessageBridge": "localAndRemote",
-      "domains": [
-        "all"
-      ]
+      "domains": "all"
     }
   },
   "entrypoints": [

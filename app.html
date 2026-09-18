@@ -875,6 +875,30 @@
       font-size: 10px; color: rgba(148, 163, 184, 0.5);
       font-weight: 400;
     }
+    /* 平台切换卡片 */
+    .cosai-platform-tabs {
+      display: grid; grid-template-columns: 1fr 1fr; gap: 8px;
+    }
+    .cosai-platform-tab {
+      display: flex; flex-direction: column; align-items: flex-start; gap: 3px;
+      padding: 10px 12px;
+      background: rgba(15, 23, 42, 0.5);
+      border: 1px solid rgba(139, 92, 246, 0.22);
+      border-radius: 10px;
+      color: #c4b5fd;
+      cursor: pointer; text-align: left;
+      transition: border-color .2s ease, background .2s ease, box-shadow .2s ease, transform .15s ease;
+    }
+    .cosai-platform-tab:hover { border-color: rgba(167, 139, 250, 0.6); }
+    .cosai-platform-tab:active { transform: scale(0.985); }
+    .cosai-platform-tab.is-active {
+      background: linear-gradient(135deg, rgba(139, 92, 246, 0.22), rgba(236, 72, 153, 0.14));
+      border-color: #a78bfa;
+      box-shadow: 0 0 0 2px rgba(167, 139, 250, 0.22), 0 6px 18px rgba(139, 92, 246, 0.18);
+    }
+    .cosai-platform-tab-name { font-size: 12px; font-weight: 600; color: #ede9fe; }
+    .cosai-platform-tab-sub { font-size: 10px; color: rgba(196, 181, 253, 0.62); line-height: 1.3; }
+    .cosai-platform-tab.is-active .cosai-platform-tab-sub { color: rgba(221, 214, 254, 0.85); }
     .cosai-prompt-input {
       width: 100%; box-sizing: border-box;
       background: rgba(15, 23, 42, 0.5);
@@ -1786,6 +1810,64 @@
     .cosai-log-level-warn { color: #fbbf24; }
     .cosai-log-level-info { color: #93c5fd; }
     .cosai-log-level-debug { color: #64748b; }
+
+    /* ===== 自动保存文件夹配置卡片 ===== */
+    .cosai-output-card {
+      margin-top: 18px;
+      padding: 14px;
+      border-radius: 12px;
+      background: rgba(15, 23, 42, 0.42);
+      border: 1px solid rgba(139, 92, 246, 0.22);
+      box-shadow: 0 6px 20px rgba(0, 0, 0, 0.22);
+    }
+    .cosai-output-card-head {
+      display: flex; align-items: center; justify-content: space-between;
+      gap: 10px; margin-bottom: 10px;
+    }
+    .cosai-output-card-title {
+      font-size: 13px; font-weight: 600; color: #e9d5ff; letter-spacing: .02em;
+    }
+    .cosai-output-path {
+      font-size: 11.5px; line-height: 1.5;
+      color: rgba(196, 181, 253, 0.85);
+      background: rgba(2, 6, 23, 0.55);
+      border: 1px solid rgba(139, 92, 246, 0.18);
+      border-radius: 8px;
+      padding: 8px 10px; margin-bottom: 10px;
+      word-break: break-all; min-height: 32px;
+    }
+    .cosai-output-path.is-empty { color: rgba(148, 163, 184, 0.55); }
+    .cosai-output-actions { margin: 0 0 4px; }
+    .cosai-switch {
+      position: relative; display: inline-block;
+      width: 38px; height: 22px; flex-shrink: 0; cursor: pointer;
+    }
+    .cosai-switch input {
+      position: absolute; opacity: 0; width: 100%; height: 100%;
+      margin: 0; cursor: pointer;
+    }
+    .cosai-switch-slider {
+      position: absolute; inset: 0; border-radius: 999px;
+      background: rgba(15, 23, 42, 0.8);
+      border: 1px solid rgba(139, 92, 246, 0.3);
+      transition: all .22s ease;
+    }
+    .cosai-switch-slider::before {
+      content: ""; position: absolute; left: 2px; top: 1px;
+      width: 16px; height: 16px; border-radius: 50%;
+      background: #94a3b8;
+      transition: all .22s cubic-bezier(.4, 0, .2, 1);
+    }
+    .cosai-switch input:checked + .cosai-switch-slider {
+      background: linear-gradient(135deg, #8b5cf6, #ec4899);
+      border-color: transparent;
+      box-shadow: 0 0 12px rgba(139, 92, 246, 0.45);
+    }
+    .cosai-switch input:checked + .cosai-switch-slider::before {
+      transform: translateX(16px); background: #fff;
+    }
+    .cosai-switch input:disabled + .cosai-switch-slider { opacity: .55; }
+    #cosai-output-status { margin-top: 10px; margin-bottom: 0; }
   </style>
   <script>
     // ===== 调试系统（确保 document 未就绪时也能工作）=====
@@ -1949,7 +2031,7 @@
         }
       });
 
-      function callHost(method, data) {
+      function callHost(method, data, timeoutMs) {
         return new Promise(function (resolve, reject) {
           if (!hasUxpHost) {
             reject(new Error('[Bridge] 不在 WebView 环境 (uxpHost missing)'));
@@ -1963,7 +2045,7 @@
               window.__dbg('TIMEOUT ' + method + ' id=' + id);
               reject(new Error('PS API 请求超时: ' + method));
             }
-          }, 20000);
+          }, timeoutMs || 20000);
 
           var payload = { id: id, method: method, args: [data || {}] };
           try {
@@ -2013,13 +2095,28 @@
         placeImage: function (base64, mode, name) {
           return callHost('placeImage', { base64: base64, name: name || 'AI 生成结果', mode: mode || 'newLayer' });
         },
-        saveImageToLocal: function (base64, fileName) {
-          return callHost('saveImageToLocal', { base64: base64, fileName: fileName });
+        saveImageToLocal: function (base64, fileName, opts) {
+          return callHost('saveImageToLocal', Object.assign({ base64: base64, fileName: fileName }, opts || {}), 60000);
+        },
+        // 原子：保存到本地 + 贴入 PS 画布（大图置入+栅格化较久，给足 3 分钟）
+        saveAndPlaceImage: function (data) {
+          return callHost('saveAndPlaceImage', data || {}, 180000);
+        },
+        // 单独贴入（兜底路径），同样放宽超时
+        placeImageQuiet: function (base64, name) {
+          return callHost('placeImage', { base64: base64, name: name || 'AI 生成结果', mode: 'newLayer' }, 180000);
         },
         readKeyConfig: function () { return callHost('readKeyConfig'); },
         saveKeyConfig: function (cfg) { return callHost('saveKeyConfig', cfg || {}); },
         clearKeyConfig: function () { return callHost('clearKeyConfig'); },
+        // 输出文件夹配置
+        getOutputConfig: function () { return callHost('getOutputConfig'); },
+        pickOutputFolder: function () { return callHost('pickOutputFolder'); },
+        saveOutputConfig: function (cfg) { return callHost('saveOutputConfig', cfg || {}); },
+        clearOutputFolder: function () { return callHost('clearOutputFolder'); },
         getSelectionBounds: function () { return callHost('getSelectionBounds'); },
+        // HTTP 代理（panel 层发起，绕过 webview CORS）；timeoutMs 可放宽到出图时长
+        httpRequest: function (spec, timeoutMs) { return callHost('httpRequest', spec, timeoutMs || 60000); },
         appendLog: function (entries) { return callHost('appendLog', { entries: entries || [] }); },
         listLogs: function () { return callHost('listLogs'); },
         clearLogs: function (dateStr) { return callHost('clearLogs', { dateStr: dateStr || '' }); },
@@ -2495,12 +2592,27 @@
             <span class="cosai-panel-title-icon">⚙️</span>
             模型配置
           </h2>
-          <p class="cosai-panel-subtitle">GRS 视觉模型 · 国内直连</p>
+          <p class="cosai-panel-subtitle">多平台视觉模型 · GRS / OpenAI 兼容网关</p>
         </div>
 
         <!-- 积分卡 -->
         <div id="cosai-credit-card2" style="display:none;margin-bottom:14px;">
           <!-- 积分卡内容将被动态填充 -->
+        </div>
+
+        <!-- 平台切换 -->
+        <div class="cosai-form-section">
+          <div class="cosai-form-label"><span>生成平台</span></div>
+          <div class="cosai-platform-tabs" id="cosai-platform-tabs">
+            <button type="button" class="cosai-platform-tab is-active" data-platform="grs">
+              <span class="cosai-platform-tab-name">⚡ GRS 官方</span>
+              <span class="cosai-platform-tab-sub">私有协议 · nano-banana</span>
+            </button>
+            <button type="button" class="cosai-platform-tab" data-platform="psydo">
+              <span class="cosai-platform-tab-name">🌐 PsyDo / OpenAI</span>
+              <span class="cosai-platform-tab-sub">兼容网关 · 多端点自动容灾</span>
+            </button>
+          </div>
         </div>
 
         <div class="cosai-form-section">
@@ -2523,7 +2635,8 @@
 
         <div class="cosai-form-section">
           <div class="cosai-form-label"><span>默认模型</span></div>
-          <input type="text" id="cosai-model-default" value="banana-pro" class="cosai-input" />
+          <input type="text" id="cosai-model-default" value="nano-banana-pro" list="cosai-model-suggestions" class="cosai-input" placeholder="选择或输入模型 ID" />
+          <datalist id="cosai-model-suggestions"></datalist>
         </div>
 
         <div class="cosai-action-row">
@@ -2532,6 +2645,23 @@
         </div>
 
         <div class="cosai-status" id="cosai-config-status">填写 API Key 后点击「保存配置」</div>
+
+        <!-- 输出文件夹：生成结果自动保存到指定目录 -->
+        <div class="cosai-output-card">
+          <div class="cosai-output-card-head">
+            <span class="cosai-output-card-title">📁 自动保存文件夹</span>
+            <label class="cosai-switch">
+              <input type="checkbox" id="cosai-output-autosave" />
+              <span class="cosai-switch-slider"></span>
+            </label>
+          </div>
+          <div class="cosai-output-path" id="cosai-output-path" title="">未设置 · 默认保存到插件数据目录</div>
+          <div class="cosai-action-row cosai-output-actions">
+            <button class="cosai-btn cosai-btn--secondary" id="cosai-output-pick">选择文件夹</button>
+            <button class="cosai-btn cosai-btn--secondary" id="cosai-output-clear">清除配置</button>
+          </div>
+          <div class="cosai-status" id="cosai-output-status">开启后，每张生成结果会自动写入所选文件夹</div>
+        </div>
       </div>
 
       <!-- 修图工具面板 -->
@@ -2668,6 +2798,8 @@
         activeResult: 0,
         generating: false,
         tasks: [],
+        // 输出文件夹配置（由 host 持久化）：{ autoSave, folderPath, folderName, configured }
+        outputConfig: null,
       };
 
       // 预设提示词
@@ -2948,40 +3080,543 @@
         });
       }
 
-      function getDrawConfig() {
-        var apiKey = '';
-        var baseUrl = '';
-        try {
-          var store = window.__cosaiSettingsStore;
-          if (store && typeof store.getState === 'function') {
-            var state = store.getState();
-            if (state.grsConfig) {
-              apiKey = state.grsConfig.apiKey || '';
-              baseUrl = state.grsConfig.baseUrl || '';
-            }
+      // ================================================================
+      // 多平台适配层
+      //  - grs  : GRS 官方私有协议（提交任务 → 轮询 → 下载结果 URL）
+      //  - psydo: OpenAI 兼容网关（GET /models 探活；images/generations|edits 同步出图）
+      // 配置统一存放 platformState，并通过 host 文件 cosai_key.json 跨会话持久化
+      // ================================================================
+      var COSAI_PLATFORMS = {
+        grs: {
+          id: 'grs', label: 'GRS 官方',
+          defaultBaseUrl: 'https://grsai.dakka.com.cn',
+          defaultModel: 'nano-banana-pro',
+          kind: 'grs',
+          models: ['nano-banana-pro', 'nano-banana-fast', 'nano-banana-pro-vt', 'nano-banana-pro-cl', 'nano-banana-pro-vip']
+        },
+        psydo: {
+          id: 'psydo', label: 'PsyDo / OpenAI',
+          defaultBaseUrl: 'https://api.psydo.top/v1',
+          defaultModel: 'gpt-image-2.5',
+          kind: 'openai',
+          models: ['gpt-image-2', 'gpt-image-2-firefly', 'gpt-image-2.5', 'gpt-image-2.5-flare', 'gpt-image-2.5-sunburst'],
+          // 官方等价端点（同一 Key/余额/模型，仅网络入口不同；顺序按官方推荐度）
+          // 文档：https://doc.psydo.top/  —— 5xx/网络波动时按官方建议切换端点
+          endpointPool: [
+            'https://api.psydo.top/v1',
+            'https://cn2.ppxcode.com/v1',
+            'https://cf.ppxcode.com/v1',
+            'https://api.ppx-ai.com/v1',
+            'https://us.psydo.top/v1'
+          ]
+        }
+      };
+
+      // 判断地址是否属于皮皮虾官方域名族（仅官方地址间才做自动端点转移）
+      var OAI_OFFICIAL_HOST_RE = /(^|\.)(psydo\.top|ppxcode\.com|ppx-ai\.com)$/i;
+      function oaiIsOfficialHost(url) {
+        try { return OAI_OFFICIAL_HOST_RE.test(new URL(url).hostname); }
+        catch (e) { return false; }
+      }
+      // 当前配置端点优先，其后补官方其他端点（去重）；非官方自定义地址不转移
+      function oaiEndpointPool(configuredBase) {
+        var cur = pfNormalizeBase('openai', configuredBase);
+        var pool = [cur];
+        if (oaiIsOfficialHost(cur)) {
+          COSAI_PLATFORMS.psydo.endpointPool.forEach(function (ep) {
+            if (pool.indexOf(ep) < 0) pool.push(ep);
+          });
+        }
+        return pool;
+      }
+
+      var platformState = {
+        active: 'grs',
+        platforms: {
+          grs: { apiKey: '', baseUrl: COSAI_PLATFORMS.grs.defaultBaseUrl, defaultModel: COSAI_PLATFORMS.grs.defaultModel },
+          psydo: { apiKey: '', baseUrl: COSAI_PLATFORMS.psydo.defaultBaseUrl, defaultModel: COSAI_PLATFORMS.psydo.defaultModel }
+        }
+      };
+
+      function pfDefaultCfg(id) {
+        var p = COSAI_PLATFORMS[id] || COSAI_PLATFORMS.grs;
+        return { apiKey: '', baseUrl: p.defaultBaseUrl, defaultModel: p.defaultModel };
+      }
+      function pfTrimSlash(u) { return String(u == null ? '' : u).replace(/\/+$/, ''); }
+      function pfJoin(base, path) { return pfTrimSlash(base) + '/' + String(path).replace(/^\/+/, ''); }
+      // OpenAI 兼容平台统一规整到 .../v1；GRS 地址保持原样（仅去尾部斜杠）
+      function pfNormalizeBase(kind, url) {
+        var b = pfTrimSlash(url);
+        if (!b) return '';
+        if (kind === 'openai' && !/\/v\d+(\/|$)/.test(b)) b += '/v1';
+        return b;
+      }
+      // 可序列化的 multipart 描述（FormData/Blob 无法通过 webview 消息桥传递）
+      function pfMultipartSpec(fields, files) {
+        return { __multipart: true, fields: fields || {}, files: files || [] };
+      }
+
+      // 统一请求入口：
+      // ① 优先走 host panel 桥（UXP 授权网络，不受 webview CORS 限制）——psydo 等无 CORS 头的网关必须走此路
+      // ② 桥不可用（浏览器调试）时降级为 webview 直连 + AbortController 超时
+      async function pfFetch(url, options, timeoutMs) {
+        var opts = options || {};
+        var method = opts.method || 'GET';
+        var headers = opts.headers || {};
+        var ms = timeoutMs || 30000;
+
+        if (window.__cosai_ps_api && window.__cosai_ps_api.httpRequest) {
+          var spec = { url: url, method: method, headers: headers };
+          if (opts.body && opts.body.__multipart) {
+            spec.form = { fields: opts.body.fields, files: opts.body.files };
+          } else if (typeof opts.body === 'string') {
+            spec.body = opts.body;
           }
-        } catch(e) {}
-        if (!apiKey) {
-          try {
-            var raw = localStorage.getItem('cosai-settings');
-            if (raw) {
-              var settings = JSON.parse(raw);
-              var s = settings.state || settings;
-              if (s.grsConfig) {
-                apiKey = s.grsConfig.apiKey || '';
-                baseUrl = s.grsConfig.baseUrl || '';
+          var hr = await window.__cosai_ps_api.httpRequest(spec, ms + 20000);
+          return {
+            ok: !!hr.ok, status: hr.status, _url: url,
+            text: async function () { return hr.bodyText; }
+          };
+        }
+
+        // —— 降级路径：直连 ——
+        var fetchOpts = { method: method, headers: {} };
+        Object.keys(headers).forEach(function (k) { fetchOpts.headers[k] = headers[k]; });
+        if (opts.body && opts.body.__multipart) {
+          var fd = new FormData();
+          Object.keys(opts.body.fields || {}).forEach(function (k) { fd.append(k, String(opts.body.fields[k])); });
+          (opts.body.files || []).forEach(function (f) {
+            fd.append(f.name, pfDataUrlToBlob(f.base64), f.filename || 'image.png');
+          });
+          fetchOpts.body = fd;
+          delete fetchOpts.headers['Content-Type'];
+        } else if (typeof opts.body === 'string') {
+          fetchOpts.body = opts.body;
+        }
+
+        var ctrl = null;
+        if (typeof AbortController !== 'undefined') {
+          ctrl = new AbortController();
+          fetchOpts.signal = ctrl.signal;
+        }
+        var timer = setTimeout(function () { if (ctrl) { try { ctrl.abort(); } catch (e) {} } }, ms);
+        var rawText = null;
+        try {
+          var rawResp = await fetch(url, fetchOpts);
+          return {
+            ok: rawResp.ok, status: rawResp.status, _url: url,
+            text: async function () { if (rawText === null) rawText = await rawResp.text(); return rawText; }
+          };
+        } catch (e) {
+          if (e && e.name === 'AbortError') throw new Error('请求超时：平台 ' + Math.round(ms / 1000) + ' 秒内未响应');
+          throw e;
+        } finally {
+          clearTimeout(timer);
+        }
+      }
+      function pfErrorMessage(resp, text) {
+        var data = null;
+        try { data = JSON.parse(text); } catch (e) { data = null; }
+        var reqUrl = resp._url || '';
+        var tail = '\n实际请求: ' + reqUrl + '\n服务端返回: ' + String(text || '').slice(0, 160);
+        if (resp.status === 401) {
+          return 'API Key 无效（HTTP 401），请确认 Key 与平台正确' + tail;
+        }
+        if (resp.status === 403) {
+          return '无访问权限（HTTP 403）：该 Key/分组未授权此模型，或上游拒绝' + tail;
+        }
+        if (resp.status === 404) {
+          // OpenAI 网关对「模型不存在」也返回 404，按 body 精确区分
+          if (data && /model_not_found|not available for this group|unknown model|does not exist/i.test(
+              String((data.error && data.error.message) || data.message || data.msg || ''))) {
+            return '模型不可用（HTTP 404 model_not_found）：当前分组不含此模型' + tail;
+          }
+          return '接口不存在（HTTP 404）：API 地址与所选平台/协议不匹配' + tail;
+        }
+        if (resp.status === 429) {
+          return '请求被拒（HTTP 429）：可能是频率/并发超限，也可能是余额、套餐或模型配额不足，请检查控制台额度后稍后重试' + tail;
+        }
+        if (resp.status >= 500) return '平台服务异常（HTTP ' + resp.status + '），正在自动切换端点/重试' + tail;
+        var msg = data && (data.msg || data.message ||
+          (data.error && (data.error.message || (typeof data.error === 'string' ? data.error : null))));
+        return (msg || ('HTTP ' + resp.status)) + tail;
+      }
+      function pfNetworkError(base, e) {
+        var m = String(e && e.message || e);
+        if (/timeout|超时/i.test(m)) return m;
+        return '无法连接 ' + base + '：' + m + '（检查网络 / API 地址 / 是否需要代理）';
+      }
+      function pfDataUrlToBlob(dataUrl) {
+        var b64 = dataUrl.indexOf(',') > 0 ? dataUrl.split(',')[1] : dataUrl;
+        var binary = atob(b64);
+        var arr = new Uint8Array(binary.length);
+        for (var i = 0; i < binary.length; i++) arr[i] = binary.charCodeAt(i);
+        return new Blob([arr], { type: 'image/png' });
+      }
+      async function pfOaiExtract(resp) {
+        var text = await resp.text();
+        if (!resp.ok) throw new Error(pfErrorMessage(resp, text));
+        var data = null;
+        try { data = JSON.parse(text); } catch (e) { throw new Error('平台返回无法解析: ' + text.slice(0, 100)); }
+        var arr = (data && data.data) || [];
+        var out = [];
+        for (var i = 0; i < arr.length; i++) {
+          var it = arr[i] || {};
+          if (it.b64_json) out.push('data:image/png;base64,' + it.b64_json);
+          else if (it.url) { try { out.push(await fetchImageAsBase64(it.url)); } catch (e) {} }
+        }
+        if (!out.length) throw new Error('平台已响应但未返回图像');
+        return out;
+      }
+      var OAI_SIZE_MAP = { '1:1': '1024x1024', '16:9': '1536x1024', '4:3': '1536x1024', '3:2': '1536x1024', '9:16': '1024x1536', '3:4': '1024x1536' };
+      var OAI_QUALITY_MAP = { '1K': 'low', '2K': 'medium', '4K': 'high' };
+
+      var pfAdapters = {
+        // ---------------- GRS 官方（私有异步协议） ----------------
+        grs: {
+          kind: 'grs',
+          test: async function (cfg) {
+            var base = pfNormalizeBase('grs', cfg.baseUrl);
+            var resp, text;
+            try {
+              resp = await pfFetch(pfJoin(base, '/client/openapi/getAPIKeyCredits'), {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ apiKey: cfg.apiKey, api_key: cfg.apiKey })
+              }, 15000);
+              text = await resp.text();
+            } catch (e) { throw new Error(pfNetworkError(base, e)); }
+            var data = null; try { data = JSON.parse(text); } catch (e) {}
+            if (resp.ok && data && data.code === 0) {
+              var c = data.data ? (data.data.credits != null ? data.data.credits : data.data.credit) : null;
+              if (c == null) c = data.credits != null ? data.credits : data.credit;
+              return { info: c != null ? ('连接成功 · GRS 剩余积分: ' + c) : '连接成功 · GRS 平台可达' };
+            }
+            if (data && /apikey|api.key/i.test(String(data.msg || ''))) {
+              throw new Error('GRS 校验失败：' + data.msg + '（此 Key 可能不属于 GRS 平台，请切换到 PsyDo/OpenAI 平台）');
+            }
+            throw new Error((data && data.msg) || ('GRS 响应异常 HTTP ' + resp.status));
+          },
+          submit: async function (cfg, task, refB64) {
+            var base = pfNormalizeBase('grs', cfg.baseUrl);
+            var body = {
+              model: task.model, prompt: task.promptFull,
+              aspectRatio: task.ratio, imageSize: task.size,
+              webHook: '-1', count: task.count, numImages: task.count
+            };
+            if (refB64) body.urls = [refB64.indexOf(',') > 0 ? refB64.split(',')[1] : refB64];
+            var resp, text;
+            try {
+              resp = await pfFetch(pfJoin(base, '/v1/draw/nano-banana'), {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + cfg.apiKey },
+                body: JSON.stringify(body)
+              }, 30000);
+              text = await resp.text();
+            } catch (e) { throw new Error(pfNetworkError(base, e)); }
+            var data = null; try { data = JSON.parse(text); } catch (e) {}
+            if (!resp.ok || !data || data.code !== 0) {
+              throw new Error((data && data.msg) || ('GRS 提交失败 · ' + String(text).slice(0, 120)));
+            }
+            var id = data.data && data.data.id;
+            if (!id) throw new Error('GRS 响应未包含任务 ID: ' + String(text).slice(0, 120));
+            return { kind: 'poll', taskId: id };
+          },
+          poll: async function (cfg, taskId, onProgress, tag) {
+            var base = pfNormalizeBase('grs', cfg.baseUrl);
+            var maxAttempts = 60, attempt = 0, lastWarn = '', lastStatus = '';
+            while (attempt < maxAttempts) {
+              attempt++;
+              var resp, text;
+              try {
+                resp = await pfFetch(pfJoin(base, '/v1/draw/result'), {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + cfg.apiKey },
+                  body: JSON.stringify({ id: taskId })
+                }, 30000);
+                text = await resp.text();
+              } catch (e) {
+                if (String(e.message || '').indexOf('超时') >= 0) { await sleepDraw(2000); continue; }
+                throw new Error(pfNetworkError(base, e));
+              }
+              var data = null; try { data = JSON.parse(text); } catch (e) {}
+              if (!resp.ok || !data || data.code !== 0) {
+                if (data && data.code === -22) {
+                  if (lastWarn !== '-22' && window.__cosaiLog) window.__cosaiLog('debug', 'POLL', (tag || '') + ' 排队中 -22');
+                  lastWarn = '-22';
+                  await sleepDraw(1000);
+                  continue;
+                }
+                throw new Error((data && data.msg) || ('GRS 轮询异常 HTTP ' + resp.status));
+              }
+              lastWarn = '';
+              var td = data.data || {};
+              var status = td.status || 'running';
+              if (status !== lastStatus) {
+                if (window.__cosaiLog) window.__cosaiLog('info', 'POLL', (tag || '') + ' 状态=' + drawStatusText(status));
+                lastStatus = status;
+              }
+              if (onProgress) onProgress(td.progress || 0, drawStatusText(status));
+              if (status === 'succeeded') {
+                var items = (td.results || []).filter(function (r) { return r && r.url; });
+                var images = [];
+                for (var k = 0; k < items.length; k++) {
+                  try { images.push(await fetchImageAsBase64(items[k].url)); }
+                  catch (e) { if (window.__cosaiLog) window.__cosaiLog('error', 'DL', 'GRS 图片下载失败: ' + e.message); }
+                }
+                return { images: images };
+              }
+              if (status === 'failed') throw new Error(td.failure_reason || td.error || 'GRS 生成失败');
+              await sleepDraw(2000);
+            }
+            throw new Error('GRS 生成超时，请稍后重试');
+          }
+        },
+
+        // ---------------- OpenAI 兼容（psydo 等，同步出图） ----------------
+        psydo: {
+          kind: 'openai',
+          _modelCache: {}, // key=base|apiKey后段 → { ids, t }
+
+          // 拉取并缓存该 key 分组的全部模型
+          listModels: async function (base, cfg, force) {
+            var self = pfAdapters.psydo;
+            var cacheKey = base + '|' + (cfg.apiKey || '').slice(-8);
+            var now = Date.now();
+            if (!force && self._modelCache[cacheKey] && now - self._modelCache[cacheKey].t < 300000) {
+              return self._modelCache[cacheKey].ids;
+            }
+            var resp = await pfFetch(pfJoin(base, '/models'), {
+              headers: { 'Authorization': 'Bearer ' + cfg.apiKey }
+            }, 15000);
+            var text = await resp.text();
+            if (!resp.ok) throw new Error(pfErrorMessage(resp, text));
+            var data = null; try { data = JSON.parse(text); } catch (e) {}
+            var ids = ((data && data.data) || []).map(function (m) { return m && m.id; }).filter(Boolean);
+            self._modelCache[cacheKey] = { ids: ids, t: now };
+            return ids;
+          },
+
+          // 从模型清单筛出图像模型并按能力偏好排序
+          imageModelsOf: function (ids) {
+            var imgs = (ids || []).filter(function (id) { return /image|dall|flux|sdxl|stable/i.test(id); });
+            return imgs.sort(function (a, b) {
+              function score(x) {
+                var s = 0;
+                if (/gpt-image/.test(x)) s += 100;
+                if (/2\.5/.test(x)) s += 8;
+                if (/(^|-)2($|[.-])/.test(x)) s += 5;
+                if (/flare|sunburst/.test(x)) s += 2;
+                if (/1\.5/.test(x)) s += 1;
+                if (/-mini|nano/.test(x)) s -= 4;
+                return s;
+              }
+              return score(b) - score(a);
+            });
+          },
+
+          // 模型候选：期望型号 → 同代降级 → 分组实际支持的图像模型
+          resolveCandidates: function (want, available) {
+            var out = [];
+            function push(m) { if (m && out.indexOf(m) < 0) out.push(m); }
+            push(want);
+            var gen = String(want || '').match(/^(gpt-image-\d+)(\.\d+)?/);
+            if (gen) {
+              if (/\.\d+/.test(want)) push(gen[1]);
+              push('gpt-image-2'); push('gpt-image-1.5');
+            }
+            pfAdapters.psydo.imageModelsOf(available).forEach(push);
+            if (available && available.length) {
+              var filtered = out.filter(function (m) { return available.indexOf(m) >= 0; });
+              if (filtered.length) return filtered.slice(0, 3);
+            }
+            return out.slice(0, 3);
+          },
+
+          test: async function (cfg) {
+            var self = pfAdapters.psydo;
+            var configured = pfNormalizeBase('openai', cfg.baseUrl);
+            var pool = oaiEndpointPool(cfg.baseUrl);
+            var ids = null;
+            var workedBase = null;
+            var authErr = null;
+            // 优先验证用户填写的端点；失败时按官方建议尝试其他等价端点
+            for (var i = 0; i < pool.length; i++) {
+              try {
+                ids = await self.listModels(pool[i], cfg, true);
+                workedBase = pool[i];
+                break;
+              } catch (e) {
+                if (/HTTP 401|HTTP 403/.test(String(e.message))) { authErr = e; break; }
               }
             }
-          } catch(e) {}
-        }
-        // 也从配置面板输入框读（可能刚填了还没保存）
-        var keyInput = document.getElementById('cosai-apikey');
-        if (keyInput && keyInput.value.trim()) apiKey = keyInput.value.trim();
-        var urlInput = document.getElementById('cosai-baseurl');
-        if (urlInput && urlInput.value.trim()) baseUrl = urlInput.value.trim();
+            if (authErr) throw authErr;
+            if (!workedBase) throw new Error('所有端点均无法连接（' + pool.length + ' 个），请检查网络/代理或更换 API 地址');
 
+            var imgs = self.imageModelsOf(ids || []);
+            var host = workedBase.replace(/^https?:\/\//, '');
+            var info = '连接成功（' + host + '）· 可用模型 ' + (ids ? ids.length : 0) + ' 个';
+            if (imgs.length) info += ' · 图像模型: ' + imgs.slice(0, 4).join(' / ');
+            if (workedBase !== configured) {
+              info += '\n提示：当前地址不通，已验证可用端点 ' + workedBase + '，建议在 API 地址中使用它';
+            }
+            return { info: info, imageModels: imgs, allModels: ids || [], workedBase: workedBase };
+          },
+          _requestOnce: async function (base, cfg, model, prompt, refB64, params) {
+            if (refB64) {
+              var eFields = { model: model, prompt: prompt, n: '1' };
+              if (params.size) eFields.size = params.size;
+              if (params.quality) eFields.quality = params.quality;
+              var formSpec = pfMultipartSpec(eFields, [
+                { name: 'image', filename: 'reference.png', contentType: 'image/png', base64: refB64 }
+              ]);
+              var respE = await pfFetch(pfJoin(base, '/images/edits'), {
+                method: 'POST',
+                headers: { 'Authorization': 'Bearer ' + cfg.apiKey },
+                body: formSpec
+              }, 300000);
+              return await pfOaiExtract(respE);
+            }
+            var body = { model: model, prompt: prompt, n: 1 };
+            if (params.size) body.size = params.size;
+            if (params.quality) body.quality = params.quality;
+            var respG = await pfFetch(pfJoin(base, '/images/generations'), {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + cfg.apiKey },
+              body: JSON.stringify(body)
+            }, 300000);
+            return await pfOaiExtract(respG);
+          },
+          submit: async function (cfg, task, refB64) {
+            var self = pfAdapters.psydo;
+            var size = OAI_SIZE_MAP[task.ratio] || null;
+            var quality = OAI_QUALITY_MAP[task.size] || null;
+            var paramSets = [{ size: size, quality: quality }, { size: size }, {}];
+
+            // —— 错误分类（依据 doc.psydo.top 错误排查章节）——
+            var isModelErr = function (m) { return /model_not_found|not available for this group|does not exist|unknown model|无此模型|模型不存在/.test(String(m || '')); };
+            var isEndpointErr = function (m) { return /HTTP 5\d\d|temporarily unavailable|upstream|overloaded|无法连接|Load failed|Network|SSL|TLS|ECONN|timed? ?out|超时|请求超时/i.test(String(m || '')); };
+            var isAuthErr = function (m) { return /HTTP 401|HTTP 403/.test(String(m || '')); };
+            var isQuotaErr = function (m) { return /HTTP 429/.test(String(m || '')); };
+            var isParamErr = function (m) { return /HTTP 400|unknown|unsupported|not support|invalid param|不支持|参数/.test(String(m || '')); };
+
+            // 端点池：当前配置端点优先，官方地址在 5xx/网络异常时自动转移
+            var endpoints = oaiEndpointPool(cfg.baseUrl);
+
+            // 拉取该 key 分组实际模型（逐端点尝试，取第一个能读到模型清单的）
+            var available = null;
+            for (var li = 0; li < endpoints.length; li++) {
+              try {
+                available = await self.listModels(endpoints[li], cfg, false);
+                if (available && available.length) break;
+              } catch (e) {
+                if (isAuthErr(String(e.message))) { available = null; break; } // Key 问题无需换端点
+                if (window.__cosaiLog) window.__cosaiLog('warn', 'OAI', '模型清单读取失败 ' + endpoints[li] + ': ' + String(e.message).slice(0, 70));
+              }
+            }
+            var candidates = self.resolveCandidates(task.model, available);
+            if (window.__cosaiLog) window.__cosaiLog('info', 'OAI', '端点池: ' + endpoints.length + ' 个 · 模型候选: ' + candidates.join(' → ') + (refB64 ? ' [参考图编辑]' : ' [文生图]'));
+
+            var lastErr = null;
+            var fatal = null;          // 与端点无关的致命错误（401/403/429），立即终止
+            var triedEndpoints = [];
+            for (var ei = 0; ei < endpoints.length; ei++) {
+              var base = endpoints[ei];
+              triedEndpoints.push(base.replace(/^https?:\/\//, '').replace('/v1', ''));
+              var endpointModelFailed = {}; // 本端点已确认不可用的模型
+              for (var ci = 0; ci < candidates.length; ci++) {
+                var model = candidates[ci];
+                if (endpointModelFailed[model]) continue;
+                for (var pi = 0; pi < paramSets.length; pi++) {
+                  // 同一 端点+模型+参数：对「上游暂不可用/超时」指数退避重试 2 次（1.5s、3s）
+                  for (var attempt = 1; attempt <= 2; attempt++) {
+                    try {
+                      var images = await self._requestOnce(base, cfg, model, task.promptFull, refB64, paramSets[pi]);
+                      if (window.__cosaiLog) window.__cosaiLog('info', 'OAI', '成功出图 端点=' + base + ' model=' + model + ' ' + images.length + '张');
+                      return { kind: 'sync', images: images, modelUsed: model, endpointUsed: base };
+                    } catch (e) {
+                      lastErr = e;
+                      var em = String(e.message || '');
+                      if (isAuthErr(em)) { fatal = e; break; }
+                      if (isQuotaErr(em)) { fatal = e; break; } // 429 含余额/配额，按文档不盲目重试
+                      if (isModelErr(em)) {
+                        endpointModelFailed[model] = true;
+                        if (window.__cosaiLog) window.__cosaiLog('warn', 'OAI', '模型 ' + model + ' 不被该分组支持，换下一个模型');
+                        pi = paramSets.length;
+                        break;
+                      }
+                      // images/edits 未在官方文档列出：某端点 404 时转移其他端点，不强重试
+                      if (refB64 && /HTTP 404/.test(em)) {
+                        if (window.__cosaiLog) window.__cosaiLog('warn', 'OAI', base + ' 未开放参考图编辑(edits)，换端点');
+                        ci = candidates.length; pi = paramSets.length;
+                        break;
+                      }
+                      if (isEndpointErr(em)) {
+                        if (attempt < 2) {
+                          var wait = 1500 * attempt;
+                          if (window.__cosaiLog) window.__cosaiLog('warn', 'OAI', base + ' 暂不可用，' + wait + 'ms 重试: ' + em.slice(0, 50));
+                          await sleepDraw(wait);
+                          continue;
+                        }
+                        // 本端点重试耗尽 → 跳出模型/参数循环，转移到下一端点
+                        if (window.__cosaiLog) window.__cosaiLog('warn', 'OAI', base + ' 持续异常，切换下一个端点');
+                        ci = candidates.length; pi = paramSets.length;
+                        break;
+                      }
+                      if (isParamErr(em) && pi < paramSets.length - 1) break; // 降参数
+                      fatal = e; break; // 其他明确的请求错误，不重试不换端点
+                    }
+                  }
+                  if (fatal) break;
+                }
+                if (fatal) break;
+              }
+              if (fatal) break;
+            }
+
+            var finalErr = fatal || lastErr || new Error('OpenAI 兼容平台生成失败');
+            var msg = finalErr.message || String(finalErr);
+            if (isQuotaErr(msg)) {
+              // 429 保持原文（pfErrorMessage 已含余额/配额指引）
+              throw finalErr;
+            }
+            if (!fatal && isEndpointErr(msg) && triedEndpoints.length > 1) {
+              msg += '\n已尝试端点 ' + triedEndpoints.length + ' 个（' + triedEndpoints.slice(0, 4).join('、') + '）仍不可用，多为上游过载；可稍后重试，或在配置页更换 Base URL。';
+            }
+            throw new Error(msg);
+          },
+          poll: async function () { return { images: [] }; }
+        }
+      };
+
+      // 统一取当前生效配置（已持久化的状态优先，配置面板未保存输入覆盖）
+      function getDrawConfig() {
+        var pid = platformState.active || 'grs';
+        var saved = platformState.platforms[pid] || pfDefaultCfg(pid);
+        var apiKey = saved.apiKey || '';
+        var baseUrl = saved.baseUrl || '';
+        var model = saved.defaultModel || '';
+        try {
+          var tabsEl = document.getElementById('cosai-platform-tabs');
+          var activeTab = tabsEl ? tabsEl.querySelector('.cosai-platform-tab.is-active') : null;
+          var formPid = activeTab && activeTab.getAttribute('data-platform');
+          if (formPid === pid) {
+            var kEl = document.getElementById('cosai-apikey');
+            var uEl = document.getElementById('cosai-baseurl');
+            var mEl = document.getElementById('cosai-model-default');
+            if (kEl && kEl.value.trim()) apiKey = kEl.value.trim();
+            if (uEl && uEl.value.trim()) baseUrl = uEl.value.trim();
+            if (mEl && mEl.value.trim()) model = mEl.value.trim();
+          }
+        } catch (e) {}
+        var meta = COSAI_PLATFORMS[pid] || COSAI_PLATFORMS.grs;
         if (!apiKey) return { error: '请先在「模型配置」中设置 API Key' };
-        return { apiKey: apiKey, baseUrl: baseUrl || 'https://grsai.dakka.com.cn' };
+        return {
+          platformId: pid,
+          apiKey: apiKey,
+          baseUrl: baseUrl || meta.defaultBaseUrl,
+          model: model || meta.defaultModel
+        };
       }
 
       // ===== 并发任务队列 =====
@@ -3107,15 +3742,15 @@
         schedulerTick();
       }
 
-      // 单任务执行体：提交→轮询→下载→保存→贴回，按目标张数不足则自动补齐重发
+      // 单任务执行体：提交→（轮询）→保存→贴回；同步平台直接回图；不足目标张数自动补齐重发
       async function runDrawTask(task) {
         var cfg = getDrawConfig();
         if (cfg.error) { finishTask(task, 'error', cfg.error); return; }
-        var baseUrl = cfg.baseUrl.replace(/\/+$/, '');
-        var apiKey = cfg.apiKey;
+        var adapter = pfAdapters[cfg.platformId] || pfAdapters.grs;
         var refB64 = uiState.refImage || '';
 
-        var maxSubtasks = 3; // 单任务最多发 3 次生成请求来补满目标张数
+        // OpenAI 兼容平台为同步出图、每批 1 张，按目标张数逐张补齐；GRS 服务端可批量返回，最多补 3 批
+        var maxSubtasks = adapter.kind === 'openai' ? Math.max(1, task.count) : 3;
         var subtask = 0;
         try {
           while (task.got < task.count && subtask < maxSubtasks) {
@@ -3123,42 +3758,84 @@
             task.phase = subtask === 1 ? '提交生成' : '补齐第 ' + subtask + ' 批';
             renderTaskList();
 
-            // 1) 提交
-            var taskId = await submitDrawTask(baseUrl, apiKey, task, refB64);
-            task.phase = '生成中';
-            renderTaskList();
-            if (window.__cosaiLog) window.__cosaiLog('info', 'GEN', '任务 #' + task.id + ' 第' + subtask + '批已提交 taskId=' + taskId);
-
-            // 2) 轮询
-            var data = await pollDrawResult(baseUrl, apiKey, taskId, function (p, s) {
-              task.phase = s;
-              task.progress = Math.min(90, Math.round(task.got / task.count * 50) + Math.round(p * 0.4));
+            // 1) 提交：GRS 返回轮询句柄；OpenAI 兼容平台同步阻塞至出图
+            var batch = await adapter.submit(cfg, task, refB64);
+            var batchImages = [];
+            if (batch.kind === 'sync') {
+              task.phase = '生成中';
+              task.progress = Math.min(90, 20 + subtask * 5);
               renderTaskList();
-            }, '#' + task.id);
+              batchImages = batch.images || [];
+              if (window.__cosaiLog) window.__cosaiLog('info', 'GEN', '任务 #' + task.id + ' 第' + subtask + '批同步返回 ' + batchImages.length + ' 张');
+            } else {
+              task.phase = '生成中';
+              renderTaskList();
+              if (window.__cosaiLog) window.__cosaiLog('info', 'GEN', '任务 #' + task.id + ' 第' + subtask + '批已提交 taskId=' + batch.taskId);
 
-            // 3) 下载并返图（单张失败不阻塞整体）
-            var urls = (data.results || []).filter(function (r) { return r && r.url; });
-            for (var k = 0; k < urls.length && task.got < task.count; k++) {
+              // 2) 轮询（适配器内部完成结果下载，统一回传 dataURL）
+              var pollData = await adapter.poll(cfg, batch.taskId, function (p, s) {
+                task.phase = s;
+                task.progress = Math.min(90, Math.round(task.got / task.count * 50) + Math.round(p * 0.4));
+                renderTaskList();
+              }, '#' + task.id);
+              batchImages = pollData.images || [];
+            }
+
+            // 3) 保存并返图（单张失败不阻塞整体；batchImages 均为 dataURL）
+            for (var k = 0; k < batchImages.length && task.got < task.count; k++) {
               try {
-                var imgB64 = await fetchImageAsBase64(urls[k].url);
+                var imgB64 = batchImages[k];
                 task.images.push(imgB64);
                 task.got++;
                 task.progress = Math.min(94, Math.round(task.got / task.count * 100));
-                // 保存本地
+                // 保存本地 + 贴入画布：host 端原子完成（base64 只过一次桥，置入用同一文件对象）
                 var saved = null;
+                var placedOk = false;
+                var placeErr = null;
+                var layerName = 'AI生成_' + task.id + '_' + task.got;
+                var fname = 'ai_gen_' + Date.now() + '_' + task.id + '_' + task.got + '.png';
+                var useOut = !!(uiState.outputConfig && uiState.outputConfig.autoSave && uiState.outputConfig.folderPath);
+                var api = window.__cosai_ps_api;
                 try {
-                  var fname = 'ai_gen_' + Date.now() + '_' + task.id + '_' + task.got + '.png';
-                  if (window.__cosai_ps_api && window.__cosai_ps_api.saveImageToLocal) {
-                    saved = await window.__cosai_ps_api.saveImageToLocal(imgB64, fname);
+                  if (api && api.saveAndPlaceImage) {
+                    var sp = await api.saveAndPlaceImage({
+                      base64: imgB64, fileName: fname, useOutputFolder: useOut, layerName: layerName
+                    });
+                    saved = sp.saved || null;
+                    placedOk = !!sp.placed;
+                    placeErr = sp.placeError || null;
+                  } else if (api && api.saveImageToLocal) {
+                    // 旧 host 兼容：先存再贴
+                    saved = await api.saveImageToLocal(imgB64, fname, { useOutputFolder: useOut });
+                    try {
+                      await api.placeImageQuiet(imgB64, layerName);
+                      placedOk = true;
+                    } catch (pe) { placeErr = pe.message; }
                   }
-                  if (window.__cosaiLog) window.__cosaiLog('info', 'SAVE', '#' + task.id + ' 已存本地 ' + ((saved && saved.name) || fname));
-                } catch (e) { if (window.__cosaiLog) window.__cosaiLog('warn', 'SAVE', '#' + task.id + ' 本地保存失败: ' + e.message); }
-                // 贴回 PS 新图层（按选区对齐由 host 处理）
-                try {
-                  if (window.__cosai_ps_api && window.__cosai_ps_api.placeImage) {
-                    await window.__cosai_ps_api.placeImage(imgB64, 'newLayer', 'AI生成_' + task.id + '_' + task.got);
+                  if (window.__cosaiLog && saved) {
+                    window.__cosaiLog('info', 'SAVE', '#' + task.id + ' 已存' + (saved.outputFolder ? '输出文件夹' : '本地') + ' ' + (saved.path || fname));
                   }
-                } catch (e) { if (window.__cosaiLog) window.__cosaiLog('warn', 'PLACE', '#' + task.id + ' 贴回失败: ' + e.message); }
+                  if (placedOk) {
+                    task.placedCount = (task.placedCount || 0) + 1;
+                    if (window.__cosaiLog) window.__cosaiLog('info', 'PLACE', '#' + task.id + ' 已贴入画布新图层: ' + layerName);
+                  } else if (placeErr) {
+                    if (window.__cosaiLog) window.__cosaiLog('error', 'PLACE', '#' + task.id + ' 贴回失败: ' + placeErr);
+                    addFeedback('error', '贴入画布失败', '第 ' + task.got + ' 张：' + placeErr + '（图片已保存，可在结果区手动置入）');
+                  }
+                } catch (e) {
+                  // 保存即失败：最后兜底，仅贴入（不经本地文件）
+                  if (window.__cosaiLog) window.__cosaiLog('warn', 'SAVE', '#' + task.id + ' 保存失败: ' + e.message);
+                  try {
+                    if (api && api.placeImageQuiet) {
+                      await api.placeImageQuiet(imgB64, layerName);
+                      placedOk = true;
+                      task.placedCount = (task.placedCount || 0) + 1;
+                    }
+                  } catch (e2) {
+                    placeErr = e2.message;
+                    addFeedback('error', '贴入画布失败', '第 ' + task.got + ' 张：' + e2.message);
+                  }
+                }
                 // 加入共享结果区
                 addResultImage(imgB64, saved);
               } catch (e) {
@@ -3176,44 +3853,19 @@
           } else {
             task.progress = 100;
             finishTask(task, 'done');
-            addFeedback('ok', '完成', '任务 #' + task.id + ' 完成，共 ' + task.images.length + ' 张');
+            var placedN = task.placedCount || 0;
+            if (placedN >= task.got) {
+              addFeedback('ok', '完成', '任务 #' + task.id + '：' + task.got + ' 张已全部贴入画布新图层');
+            } else if (placedN > 0) {
+              addFeedback('ok', '完成', '任务 #' + task.id + '：' + placedN + '/' + task.got + ' 张已贴入画布，其余见结果区');
+            } else {
+              addFeedback('error', '未贴入画布', '任务 #' + task.id + ' 已生成 ' + task.got + ' 张但均未贴入，请确认 PS 中有打开的文档');
+            }
           }
         } catch (e) {
           finishTask(task, 'error', e.message || String(e));
           addFeedback('error', '失败', '任务 #' + task.id + ' 失败: ' + (e.message || e));
         }
-      }
-
-      function submitDrawTask(baseUrl, apiKey, task, refB64) {
-        var body = {
-          model: task.model,
-          prompt: task.promptFull,
-          aspectRatio: task.ratio,
-          imageSize: task.size,
-          webHook: '-1',
-          count: task.count,      // 期望张数提示；服务端如不支持该字段会自动忽略，随后端配额补齐
-          numImages: task.count,
-        };
-        if (refB64) {
-          var b64 = refB64.indexOf(',') > 0 ? refB64.split(',')[1] : refB64;
-          body.urls = [b64];
-        }
-        return fetch(baseUrl + '/v1/draw/nano-banana', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + apiKey },
-          body: JSON.stringify(body),
-        }).then(function (resp) {
-          return resp.text();
-        }).then(function (text) {
-          var data = null;
-          try { data = JSON.parse(text); } catch (e) {}
-          if (!data || data.code !== 0) {
-            throw new Error((data && data.msg) || ('提交失败 · ' + String(text).slice(0, 120)));
-          }
-          var id = data.data && data.data.id;
-          if (!id) throw new Error('响应未包含任务 ID: ' + String(text).slice(0, 160));
-          return id;
-        });
       }
 
       // 重绘任务队列 + 顶部汇总进度
@@ -3270,63 +3922,22 @@
         }
       }
 
-      async function pollDrawResult(baseUrl, apiKey, taskId, onProgress, tag) {
-        var maxAttempts = 60;
-        var attempt = 0;
-        var lastWarn = '';
-        var lastStatus = '';
-        while (attempt < maxAttempts) {
-          attempt++;
-          try {
-            var resp = await fetch(baseUrl + '/v1/draw/result', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + apiKey },
-              body: JSON.stringify({ id: taskId }),
-            });
-            var text = await resp.text();
-            var data = null;
-            try { data = JSON.parse(text); } catch(e) {}
-            if (!resp.ok || !data || data.code !== 0) {
-              if (data && data.code === -22) {
-                // 任务尚未就绪：仅提示一次，避免刷屏（并发送到磁盘日志）
-                if (lastWarn !== '-22' && window.__cosaiLog) { window.__cosaiLog('debug', 'POLL', (tag || '') + ' 任务排队中代码 -22'); lastWarn = '-22'; }
-                await sleepDraw(1000);
-                continue;
-              }
-              throw new Error((data && data.msg) || ('HTTP ' + resp.status));
-            }
-            lastWarn = '';
-            var taskData = data.data;
-            var progress = taskData.progress || 0;
-            var status = taskData.status || 'running';
-            if (status !== lastStatus) {
-              if (window.__cosaiLog) window.__cosaiLog('info', 'POLL', (tag || '') + ' 状态=' + drawStatusText(status) + '(' + progress + '%)');
-              lastStatus = status;
-            }
-            if (onProgress) onProgress(progress || 0, drawStatusText(status));
-            if (status === 'succeeded') return taskData;
-            if (status === 'failed') {
-              throw new Error(taskData.failure_reason || taskData.error || '生成失败');
-            }
-            await sleepDraw(2000);
-          } catch(e) {
-            if (e.message && String(e.message).indexOf('HTTP') >= 0) {
-              if (lastWarn !== 'http') { lastWarn = 'http'; }
-              await sleepDraw(2000);
-              continue;
-            }
-            throw e;
-          }
-        }
-        throw new Error('生成超时，请稍后重试');
-      }
-
       function drawStatusText(status) {
         var map = { running: '生成中', succeeded: '已完成', failed: '失败', pending: '排队中' };
         return map[status] || status || '处理中';
       }
 
       async function fetchImageAsBase64(url) {
+        // 优先经 panel 桥下载（结果图床域名未知，webview 直连可能遇 CORS/权限拦截）
+        if (window.__cosai_ps_api && window.__cosai_ps_api.httpRequest) {
+          var hr = await window.__cosai_ps_api.httpRequest(
+            { url: url, method: 'GET', responseType: 'base64' }, 60000
+          );
+          if (!hr.ok) throw new Error('图片下载失败: HTTP ' + hr.status);
+          var mime = (hr.bodyMime && hr.bodyMime.split(';')[0]) || 'image/png';
+          return 'data:' + mime + ';base64,' + hr.bodyBase64;
+        }
+        // 降级：webview 直连
         var resp = await fetch(url);
         if (!resp.ok) throw new Error('图片下载失败: HTTP ' + resp.status);
         var blob = await resp.blob();
@@ -3378,18 +3989,19 @@
         actionsHtml += '</div>';
         bodyEl.insertAdjacentHTML('beforeend', actionsHtml);
 
-        // 绑定按钮 - 贴入画布
+        // 绑定按钮 - 贴入画布（长超时，适配大图置入+栅格化）
         var placeBtn = document.getElementById('cosai-place-btn');
         if (placeBtn) {
           placeBtn.addEventListener('click', function() {
-            if (!window.__cosai_ps_api || !window.__cosai_ps_api.placeImage) {
-              showToast('PS API 未就绪', 'error'); return;
-            }
+            var fn = window.__cosai_ps_api && (window.__cosai_ps_api.placeImageQuiet || window.__cosai_ps_api.placeImage);
+            if (!fn) { showToast('PS API 未就绪', 'error'); return; }
             placeBtn.disabled = true;
             placeBtn.textContent = '⏳ 贴入中...';
-            window.__cosai_ps_api.placeImage(active.base64, 'newLayer', 'AI生成_' + (uiState.activeResult + 1))
+            fn.call(window.__cosai_ps_api, active.base64, 'AI生成_' + (uiState.activeResult + 1))
               .then(function() { showToast('已贴入画布', 'success'); })
-              .catch(function(e) { showToast('贴入失败: ' + e.message, 'error'); })
+              .catch(function(e) {
+                showToast('贴入失败: ' + e.message + (e.message.indexOf('文档') >= 0 ? '（请先在 PS 打开一个文档）' : ''), 'error');
+              })
               .finally(function() {
                 placeBtn.disabled = false;
                 placeBtn.innerHTML = '📥 贴入画布';
@@ -3413,7 +4025,8 @@
             saveBtn.disabled = true;
             saveBtn.textContent = '⏳ 保存中...';
             var fname = 'ai_gen_' + Date.now() + '.png';
-            window.__cosai_ps_api.saveImageToLocal(active.base64, fname)
+            var useOutput = !!(uiState.outputConfig && uiState.outputConfig.autoSave && uiState.outputConfig.folderPath);
+            window.__cosai_ps_api.saveImageToLocal(active.base64, fname, { useOutputFolder: useOutput })
               .then(function(r) {
                 active.saved = r;
                 showToast('已保存到 ' + (r.folder || '本地'), 'success');
@@ -3471,59 +4084,142 @@
           });
         }
 
-        // 保存配置
+        // 保存配置 / 测试连接
         var saveBtn = document.getElementById('cosai-save-config');
         if (saveBtn) saveBtn.addEventListener('click', saveConfig2);
-
-        // 测试连接
         var testBtn = document.getElementById('cosai-test-config');
         if (testBtn) testBtn.addEventListener('click', testConfig2);
 
-        // 加载已有配置
-        loadConfigToPanel();
+        // 平台切换：切换前先把当前表单收回内存，再渲染目标平台表单
+        var tabsEl = document.getElementById('cosai-platform-tabs');
+        if (tabsEl) {
+          tabsEl.querySelectorAll('.cosai-platform-tab').forEach(function (btn) {
+            btn.addEventListener('click', function () {
+              collectFormToState(platformState.active);
+              switchPlatform(btn.getAttribute('data-platform'));
+            });
+          });
+        }
+
+        // 加载持久化配置并渲染
+        initPlatformConfig();
+
+        // 输出文件夹配置
+        bindOutputFolderConfig();
       }
 
-      function loadConfigToPanel() {
-        var apiKeyEl = document.getElementById('cosai-apikey');
-        var baseUrlEl = document.getElementById('cosai-baseurl');
-        var modelEl = document.getElementById('cosai-model-default');
-        var loaded = false;
-        // 优先从本地 Key 文件读取（持久化的单一数据源）
+      // ===== 输出文件夹（生成结果自动保存到指定目录）=====
+      function setOutputStatus(text, type) {
+        var el = document.getElementById('cosai-output-status');
+        if (!el) return;
+        el.textContent = text;
+        el.className = 'cosai-status' + (type ? ' ' + type : '');
+      }
+
+      function renderOutputConfig(cfg) {
+        uiState.outputConfig = cfg || null;
+        var pathEl = document.getElementById('cosai-output-path');
+        var swEl = document.getElementById('cosai-output-autosave');
+        if (!pathEl || !swEl) return;
+        if (cfg && cfg.folderPath) {
+          pathEl.textContent = '📂 ' + cfg.folderPath;
+          pathEl.classList.remove('is-empty');
+          pathEl.title = cfg.folderPath;
+        } else {
+          pathEl.textContent = '未设置 · 默认保存到插件数据目录';
+          pathEl.classList.add('is-empty');
+          pathEl.title = '';
+        }
+        swEl.checked = !!(cfg && cfg.autoSave && cfg.folderPath);
+        swEl.disabled = !(cfg && cfg.folderPath);
+      }
+
+      function loadOutputConfig() {
         try {
-          if (window.__cosai_ps_api && window.__cosai_ps_api.readKeyConfig) {
-            var fileCfg = null;
-            window.__cosai_ps_api.readKeyConfig().then(function (f) {
-              fileCfg = f || {};
-              if (apiKeyEl && fileCfg.apiKey) { apiKeyEl.value = fileCfg.apiKey; loaded = true; }
-              if (baseUrlEl && fileCfg.baseUrl) baseUrlEl.value = fileCfg.baseUrl;
-              if (modelEl && fileCfg.defaultModel) modelEl.value = fileCfg.defaultModel;
-              // 文件读到了就直接用，不再从 store/localStorage 覆盖
-            }).catch(function() {});
+          if (window.__cosai_ps_api && window.__cosai_ps_api.getOutputConfig) {
+            return window.__cosai_ps_api.getOutputConfig().then(function (cfg) {
+              renderOutputConfig(cfg);
+            }).catch(function () {});
           }
-        } catch(e) {}
-        // 兜底：store -> localStorage（仅在文件无 Key 时使用）
-        try {
-          var store = window.__cosaiSettingsStore;
-          if (store && typeof store.getState === 'function') {
-            var state = store.getState();
-            if (state.grsConfig) {
-              if (apiKeyEl && !apiKeyEl.value && state.grsConfig.apiKey) apiKeyEl.value = state.grsConfig.apiKey;
-              if (baseUrlEl && !baseUrlEl.value && state.grsConfig.baseUrl) baseUrlEl.value = state.grsConfig.baseUrl;
+        } catch (e) { /* 静默：配置加载失败不阻塞界面 */ }
+        return Promise.resolve();
+      }
+
+      function bindOutputFolderConfig() {
+        var pickBtn = document.getElementById('cosai-output-pick');
+        var clearBtn = document.getElementById('cosai-output-clear');
+        var swEl = document.getElementById('cosai-output-autosave');
+
+        if (pickBtn) {
+          pickBtn.addEventListener('click', async function () {
+            if (!window.__cosai_ps_api || !window.__cosai_ps_api.pickOutputFolder) {
+              setOutputStatus('PS API 未就绪', 'error');
+              return;
             }
-          }
-        } catch(e) {}
-        if (!apiKeyEl || apiKeyEl.value) return;
-        try {
-          var raw = localStorage.getItem('cosai-settings');
-          if (raw) {
-            var settings = JSON.parse(raw);
-            var s = settings.state || settings;
-            if (s.grsConfig) {
-              if (apiKeyEl && !apiKeyEl.value && s.grsConfig.apiKey) apiKeyEl.value = s.grsConfig.apiKey;
-              if (baseUrlEl && !baseUrlEl.value && s.grsConfig.baseUrl) baseUrlEl.value = s.grsConfig.baseUrl;
+            pickBtn.disabled = true;
+            var oldText = pickBtn.textContent;
+            pickBtn.textContent = '等待选择...';
+            try {
+              var cfg = await window.__cosai_ps_api.pickOutputFolder();
+              renderOutputConfig(cfg);
+              setOutputStatus('已设置 · 生成结果将自动保存到该文件夹', 'success');
+              showToast('输出文件夹已设置', 'success');
+            } catch (e) {
+              var msg = (e && e.message) || String(e);
+              if (msg.indexOf('取消') < 0) setOutputStatus('选择失败: ' + msg, 'error');
+            } finally {
+              pickBtn.disabled = false;
+              pickBtn.textContent = oldText;
             }
-          }
-        } catch(e) {}
+          });
+        }
+
+        if (clearBtn) {
+          clearBtn.addEventListener('click', async function () {
+            clearBtn.disabled = true;
+            try {
+              if (window.__cosai_ps_api && window.__cosai_ps_api.clearOutputFolder) {
+                await window.__cosai_ps_api.clearOutputFolder();
+              }
+              renderOutputConfig(null);
+              setOutputStatus('已清除 · 后续将保存到插件数据目录');
+              showToast('输出文件夹配置已清除', 'success');
+            } catch (e) {
+              setOutputStatus('清除失败: ' + ((e && e.message) || e), 'error');
+            } finally {
+              clearBtn.disabled = false;
+            }
+          });
+        }
+
+        if (swEl) {
+          swEl.addEventListener('change', async function () {
+            // 还没选文件夹就打开开关：直接引导选择（选择成功后 host 默认开启）
+            if (swEl.checked && !(uiState.outputConfig && uiState.outputConfig.folderPath)) {
+              swEl.checked = false;
+              if (pickBtn) pickBtn.click();
+              return;
+            }
+            try {
+              if (window.__cosai_ps_api && window.__cosai_ps_api.saveOutputConfig) {
+                var saved = await window.__cosai_ps_api.saveOutputConfig({ autoSave: swEl.checked });
+                if (saved && saved.config) {
+                  renderOutputConfig(saved.config);
+                } else {
+                  uiState.outputConfig = uiState.outputConfig || {};
+                  uiState.outputConfig.autoSave = swEl.checked;
+                }
+              }
+              setOutputStatus(swEl.checked ? '已开启 · 每张生成结果自动写入该文件夹' : '已关闭 · 仅保存到插件数据目录');
+            } catch (e) {
+              swEl.checked = !swEl.checked;
+              setOutputStatus('设置失败: ' + ((e && e.message) || e), 'error');
+            }
+          });
+        }
+
+        // 面板绑定时拉取一次已持久化的配置
+        loadOutputConfig();
       }
 
       function setConfigStatus(text, type) {
@@ -3533,100 +4229,245 @@
         el.className = 'cosai-status' + (type ? ' ' + type : '');
       }
 
-      async function saveConfig2() {
-        var apiKey = document.getElementById('cosai-apikey').value.trim();
-        var baseUrl = document.getElementById('cosai-baseurl').value.trim();
-        var model = document.getElementById('cosai-model-default').value.trim();
-        if (!apiKey) { setConfigStatus('请输入 API Key', 'error'); return; }
+      // 收集当前表单 → 指定平台的内存状态
+      function collectFormToState(pid) {
+        if (!platformState.platforms[pid]) platformState.platforms[pid] = pfDefaultCfg(pid);
+        var prev = platformState.platforms[pid];
+        var k = document.getElementById('cosai-apikey');
+        var u = document.getElementById('cosai-baseurl');
+        var m = document.getElementById('cosai-model-default');
+        platformState.platforms[pid] = {
+          apiKey: k ? k.value.trim() : prev.apiKey,
+          baseUrl: u ? (u.value.trim() || COSAI_PLATFORMS[pid].defaultBaseUrl) : prev.baseUrl,
+          defaultModel: m ? (m.value.trim() || COSAI_PLATFORMS[pid].defaultModel) : prev.defaultModel
+        };
+      }
 
-        setConfigStatus('正在保存...', 'loading');
+      function renderPlatformTabs(pid) {
+        var tabsEl = document.getElementById('cosai-platform-tabs');
+        if (!tabsEl) return;
+        tabsEl.querySelectorAll('.cosai-platform-tab').forEach(function (btn) {
+          btn.classList.toggle('is-active', btn.getAttribute('data-platform') === pid);
+        });
+      }
+
+      function renderModelSuggestions(pid) {
+        var dl = document.getElementById('cosai-model-suggestions');
+        if (!dl) return;
+        var models = (COSAI_PLATFORMS[pid] || {}).models || [];
+        dl.innerHTML = models.map(function (mm) {
+          return '<option value="' + escapeHtml(mm) + '">';
+        }).join('');
+      }
+
+      // 绘画面板「模型」下拉：跟随平台动态刷新，选中该平台默认/自定义模型
+      function renderDrawModelOptions() {
+        var sel = document.getElementById('cosai-model');
+        if (!sel) return;
+        var pid = platformState.active;
+        var cfg = platformState.platforms[pid] || pfDefaultCfg(pid);
+        var models = (COSAI_PLATFORMS[pid] || {}).models || [];
+        var selected = cfg.defaultModel || (COSAI_PLATFORMS[pid] || {}).defaultModel;
+        var html = '';
+        if (selected && models.indexOf(selected) < 0) {
+          html += '<option value="' + escapeHtml(selected) + '" selected>' + escapeHtml(selected) + '</option>';
+        }
+        html += models.map(function (mm) {
+          return '<option value="' + escapeHtml(mm) + '"' + (mm === selected ? ' selected' : '') + '>' + escapeHtml(mm) + '</option>';
+        }).join('');
+        sel.innerHTML = html;
+      }
+
+      function fillConfigForm(pid) {
+        var cfg = platformState.platforms[pid] || pfDefaultCfg(pid);
+        var meta = COSAI_PLATFORMS[pid] || COSAI_PLATFORMS.grs;
+        var k = document.getElementById('cosai-apikey');
+        var u = document.getElementById('cosai-baseurl');
+        var m = document.getElementById('cosai-model-default');
+        if (k) { k.value = cfg.apiKey || ''; k.type = 'password'; }
+        if (u) u.value = cfg.baseUrl || meta.defaultBaseUrl;
+        if (m) m.value = cfg.defaultModel || meta.defaultModel;
+        renderPlatformTabs(pid);
+        renderModelSuggestions(pid);
+        setConfigStatus(
+          cfg.apiKey ? '已载入 ' + meta.label + ' 配置（本地已保存）' : '填写 API Key 后点击「保存配置」',
+          cfg.apiKey ? 'success' : ''
+        );
+      }
+
+      async function switchPlatform(pid) {
+        if (!COSAI_PLATFORMS[pid]) {
+          if (COSAI_PLATFORMS[pid]) { renderPlatformTabs(pid); }
+          return;
+        }
+        if (pid === platformState.active) { renderPlatformTabs(pid); return; }
+        platformState.active = pid;
+        fillConfigForm(pid);
+        renderDrawModelOptions();
+        // 切换即激活并落盘：平台选择是明确意图，不依赖「保存配置」按钮，
+        // 保证 UI 显示、实际生效、下次启动三者始终一致
         try {
-          var savedToStore = false;
-          try {
-            var store = window.__cosaiSettingsStore;
-            if (store && store.setState) {
-              store.setState({
-                provider: 'grs',
-                grsConfig: { apiKey: apiKey, baseUrl: baseUrl, defaultModel: model },
-                openaiConfig: { apiKey: apiKey, baseUrl: baseUrl, defaultModel: model },
-              });
-              savedToStore = true;
-            }
-          } catch(e) {}
-          try {
-            var raw = localStorage.getItem('cosai-settings');
-            var settings = raw ? JSON.parse(raw) : { state: {}, version: 0 };
-            if (!settings.state) settings.state = {};
-            settings.state.provider = 'grs';
-            settings.state.grsConfig = { apiKey: apiKey, baseUrl: baseUrl, defaultModel: model };
-            settings.state.openaiConfig = { apiKey: apiKey, baseUrl: baseUrl, defaultModel: model };
-            localStorage.setItem('cosai-settings', JSON.stringify(settings));
-          } catch(e) {}
-
-          // 写入本地 Key 文件（跨会话持久化，避免每次重新输入）
-          var fileSaved = false;
-          try {
-            if (window.__cosai_ps_api && window.__cosai_ps_api.saveKeyConfig) {
-              var fr = await window.__cosai_ps_api.saveKeyConfig({
-                apiKey: apiKey, baseUrl: baseUrl, defaultModel: model, provider: 'grs',
-              });
-              fileSaved = !!(fr && fr.success);
-            }
-          } catch(e) { console.warn('[Config] 本地文件写入异常:', e); }
-          if (fileSaved) {
-            setConfigStatus('配置已保存 ✓ 已写入本地文件，下次自动加载', 'success');
-          } else if (savedToStore) {
-            setConfigStatus('配置已保存 ✓（已同步到主功能设置，但本地文件写入失败）', 'success');
-          } else {
-            setConfigStatus('配置已保存 ✓（请检查插件环境）', 'success');
-          }
-        } catch(e) {
-          setConfigStatus('保存失败: ' + e.message, 'error');
+          await persistPlatformConfig();
+          setConfigStatus('已切换并启用：' + COSAI_PLATFORMS[pid].label + '（当前生效平台，已记忆）', 'success');
+        } catch (e) {
+          setConfigStatus('已切换到 ' + COSAI_PLATFORMS[pid].label + '，但本地持久化失败：' + e.message, 'error');
         }
       }
 
-      async function testConfig2() {
-        var apiKey = document.getElementById('cosai-apikey').value.trim();
-        var baseUrl = document.getElementById('cosai-baseurl').value.trim();
-        if (!apiKey) { setConfigStatus('请先输入 API Key', 'error'); return; }
+      // 合并旧结构 store（grsConfig / openaiConfig），仅补充已有 Key
+      function mergeLegacyStore(s) {
+        if (!s) return;
+        if (s.grsConfig && s.grsConfig.apiKey && !platformState.platforms.grs.apiKey) {
+          platformState.platforms.grs = {
+            apiKey: s.grsConfig.apiKey,
+            baseUrl: s.grsConfig.baseUrl || COSAI_PLATFORMS.grs.defaultBaseUrl,
+            defaultModel: s.grsConfig.defaultModel || COSAI_PLATFORMS.grs.defaultModel
+          };
+        }
+        if (s.openaiConfig && s.openaiConfig.apiKey && !platformState.platforms.psydo.apiKey) {
+          platformState.platforms.psydo = {
+            apiKey: s.openaiConfig.apiKey,
+            baseUrl: s.openaiConfig.baseUrl || COSAI_PLATFORMS.psydo.defaultBaseUrl,
+            defaultModel: s.openaiConfig.defaultModel || COSAI_PLATFORMS.psydo.defaultModel
+          };
+        }
+      }
 
-        setConfigStatus('正在测试连接...', 'loading');
+      // 启动加载：host 本地文件（v2/旧档）→ React store / localStorage 兜底
+      async function initPlatformConfig() {
+        var fileCfg = null;
         try {
-          var nodes = [baseUrl.replace(/\/+$/, ''), 'https://grsai.dakka.com.cn', 'https://grsaiapi.com'];
-          var credits = null;
-          var usedNode = null;
-          var lastError = null;
-          for (var i = 0; i < nodes.length; i++) {
-            try {
-              var node = nodes[i];
-              var resp = await fetch(node + '/client/openapi/getAPIKeyCredits?_=' + Date.now(), {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ apiKey: apiKey, api_key: apiKey }),
-              });
-              var text = await resp.text();
-              var data = null;
-              try { data = JSON.parse(text); } catch(e) {}
-              if (data && data.code === 0) {
-                var c = (data.data && (data.data.credits != null ? data.data.credits : data.data.credit));
-                if (c == null) c = data.credits != null ? data.credits : data.credit;
-                credits = c;
-                usedNode = node;
-                break;
-              } else if (data && data.code === 401) {
-                lastError = 'API Key 无效'; break;
-              } else {
-                lastError = data && data.msg ? data.msg : '响应异常';
+          if (window.__cosai_ps_api && window.__cosai_ps_api.readKeyConfig) {
+            fileCfg = await window.__cosai_ps_api.readKeyConfig();
+          }
+        } catch (e) {}
+
+        if (fileCfg) {
+          if (fileCfg.version === 2 && fileCfg.platforms) {
+            Object.keys(platformState.platforms).forEach(function (pid) {
+              var pc = fileCfg.platforms[pid];
+              if (pc && pc.apiKey) {
+                platformState.platforms[pid] = {
+                  apiKey: pc.apiKey,
+                  baseUrl: pc.baseUrl || COSAI_PLATFORMS[pid].defaultBaseUrl,
+                  defaultModel: pc.defaultModel || COSAI_PLATFORMS[pid].defaultModel
+                };
               }
-            } catch(e) { lastError = e.message; }
+            });
+            if (COSAI_PLATFORMS[fileCfg.activePlatform]) platformState.active = fileCfg.activePlatform;
+          } else if (fileCfg.apiKey) {
+            // 旧版扁平文件：显式 provider 优先，否则按地址特征归类
+            var pid = fileCfg.provider === 'psydo' || /psydo|\/v\d+$/i.test(fileCfg.baseUrl || '') ? 'psydo' : 'grs';
+            // 旧档模型名不在新平台清单内（如历史默认 banana-pro）时回落到平台默认模型
+            var legacyModels = COSAI_PLATFORMS[pid].models;
+            var legacyModel = legacyModels.indexOf(fileCfg.defaultModel) >= 0
+              ? fileCfg.defaultModel
+              : COSAI_PLATFORMS[pid].defaultModel;
+            platformState.platforms[pid] = {
+              apiKey: fileCfg.apiKey,
+              baseUrl: fileCfg.baseUrl || COSAI_PLATFORMS[pid].defaultBaseUrl,
+              defaultModel: legacyModel
+            };
+            platformState.active = pid;
           }
-          if (credits != null) {
-            setConfigStatus('连接成功 ✓\n当前积分: ' + credits + '\n节点: ' + usedNode, 'success');
-          } else {
-            setConfigStatus('连接失败: ' + (lastError || '未知错误'), 'error');
+        }
+
+        try {
+          var store = window.__cosaiSettingsStore;
+          if (store && typeof store.getState === 'function') mergeLegacyStore(store.getState());
+        } catch (e) {}
+        try {
+          var raw = localStorage.getItem('cosai-settings');
+          if (raw) {
+            var wrap = JSON.parse(raw);
+            mergeLegacyStore(wrap.state || wrap);
           }
-        } catch(e) {
-          setConfigStatus('测试失败: ' + e.message, 'error');
+        } catch (e) {}
+
+        fillConfigForm(platformState.active);
+        renderDrawModelOptions();
+      }
+
+      // 持久化：host 文件（v2 多平台）+ React store / localStorage 镜像
+      async function persistPlatformConfig() {
+        var fileSaved = false;
+        try {
+          if (window.__cosai_ps_api && window.__cosai_ps_api.saveKeyConfig) {
+            var fr = await window.__cosai_ps_api.saveKeyConfig({
+              version: 2,
+              activePlatform: platformState.active,
+              platforms: platformState.platforms
+            });
+            fileSaved = !!(fr && fr.success);
+          }
+        } catch (e) { console.warn('[Config] 本地文件写入失败:', e); }
+
+        var grs = platformState.platforms.grs;
+        var psy = platformState.platforms.psydo;
+        try {
+          var store = window.__cosaiSettingsStore;
+          if (store && store.setState) {
+            store.setState({
+              provider: platformState.active,
+              grsConfig: { apiKey: grs.apiKey, baseUrl: grs.baseUrl, defaultModel: grs.defaultModel },
+              openaiConfig: { apiKey: psy.apiKey, baseUrl: psy.baseUrl, defaultModel: psy.defaultModel }
+            });
+          }
+        } catch (e) {}
+        try {
+          var raw = localStorage.getItem('cosai-settings');
+          var settings = raw ? JSON.parse(raw) : { state: {}, version: 0 };
+          if (!settings.state) settings.state = {};
+          settings.state.provider = platformState.active;
+          settings.state.grsConfig = { apiKey: grs.apiKey, baseUrl: grs.baseUrl, defaultModel: grs.defaultModel };
+          settings.state.openaiConfig = { apiKey: psy.apiKey, baseUrl: psy.baseUrl, defaultModel: psy.defaultModel };
+          localStorage.setItem('cosai-settings', JSON.stringify(settings));
+        } catch (e) {}
+        return fileSaved;
+      }
+
+      async function saveConfig2() {
+        var pid = platformState.active;
+        collectFormToState(pid);
+        var cfg = platformState.platforms[pid];
+        if (!cfg.apiKey) { setConfigStatus('请输入 API Key', 'error'); return; }
+
+        setConfigStatus('正在保存...', 'loading');
+        var fileSaved = await persistPlatformConfig();
+        renderDrawModelOptions();
+        setConfigStatus(
+          fileSaved
+            ? '配置已保存 ✓ 已写入本地文件，下次启动自动加载（当前平台：' + COSAI_PLATFORMS[pid].label + '）'
+            : '配置已保存 ✓（本地文件不可用，已存入浏览器缓存）',
+          'success'
+        );
+      }
+
+      async function testConfig2() {
+        var pid = platformState.active;
+        collectFormToState(pid);
+        var cfg = platformState.platforms[pid];
+        if (!cfg.apiKey) { setConfigStatus('请先输入 API Key', 'error'); return; }
+
+        setConfigStatus('正在测试 ' + COSAI_PLATFORMS[pid].label + ' 连接...', 'loading');
+        try {
+          var r = await pfAdapters[pid].test(cfg);
+          // OpenAI 类平台：用该 key 分组真实可用的图像模型纠正下拉与默认模型
+          if (r.imageModels && r.imageModels.length) {
+            COSAI_PLATFORMS[pid].models = r.imageModels;
+            var cur = (cfg.defaultModel || '');
+            var best = r.imageModels.indexOf(cur) >= 0 ? cur : r.imageModels[0];
+            platformState.platforms[pid].defaultModel = best;
+            var mEl = document.getElementById('cosai-model-default');
+            if (mEl) mEl.value = best;
+          }
+          // 测试通过即自动保存并锁定活动平台：一次操作完成验证+记忆，免重复输入
+          await persistPlatformConfig();
+          renderModelSuggestions(pid);
+          renderDrawModelOptions();
+          setConfigStatus(r.info + '\n平台：' + COSAI_PLATFORMS[pid].label + ' · 配置与模型已自动保存', 'success');
+        } catch (e) {
+          setConfigStatus('连接失败: ' + (e.message || e), 'error');
         }
       }
 

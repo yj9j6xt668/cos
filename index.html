@@ -74,16 +74,19 @@
       document.getElementById('btn-test-export').addEventListener('click', async function () {
         setStatus('导出中...');
         try {
-          if (!window.__cosaiHost || !window.__cosaiHost.exportAsBase64) {
-            setStatus('host API 不存在', 'err');
+          // 等待 host.js 就绪（最多 3 秒），消除加载时序竞态误报
+          var host = window.__cosaiHost;
+          for (var i = 0; i < 30 && !(host && host.exportAsBase64); i++) {
+            await new Promise(function (r) { setTimeout(r, 100); });
+            host = window.__cosaiHost;
+          }
+          if (!host || !host.exportAsBase64) {
+            setStatus('host.js 尚未加载完成，请关闭面板重新打开（或重启 Photoshop）', 'err');
             return;
           }
-          var result = await window.__cosaiHost.exportAsBase64({ format: 'png' });
+          var result = await host.exportAsBase64({ format: 'png' });
           var len = result && result.base64 ? result.base64.length : 0;
           setStatus('导出成功! base64=' + len, 'ok');
-
-          // 同时测试直接写回到 PS（验证 paste/place 功能）
-          // 暂时只测试导出
         } catch (err) {
           setStatus('导出失败: ' + (err.message || String(err)).slice(0, 50), 'err');
         }
