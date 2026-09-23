@@ -3,3 +3,10 @@
 node_modules/
 .cache/
 *.tmp
+
+# 手工改动前的备份文件（app.html.bak.multipf / app.js.bak.old346k 等）
+*.bak
+*.bak.*
+
+# 运行时生成的插件数据与日志目录
+cosai_logs/

@@ -1,6 +1,6 @@
 # CosAI — Photoshop 漫展修图助手
 
-[![Version](https://img.shields.io/badge/version-1.7.0-blue.svg)]()
+[![Version](https://img.shields.io/badge/version-1.8.2-blue.svg)]()
 [![Platform](https://img.shields.io/badge/platform-Photoshop%202026+-green.svg)]()
 [![Framework](https://img.shields.io/badge/framework-UXP%20v5-orange.svg)]()
 
@@ -59,7 +59,7 @@ CosAI 面向 Photoshop 2026+ UXP 架构，为漫展 Cosplay 人像后期提供�
 │  │           UXP Panel (index.html)             │ │
 │  │  ┌──────────┐    ┌──────────────────────┐   │ │
 │  │  │  host.js  │◄──►│  WebView (app.html)  │   │ │
-│  │  │  (PS API) │    │  (React UI)          │   │ │
+│  │  │  (PS API) │    │  (手写原生 UI)       │   │ │
 │  │  └──────────┘    └──────────────────────┘   │ │
 │  │      │  ▲ 分级日志落盘                          │ │
 │  │      └──┴─► cosai_logs/cosai_YYYYMMDD.log     │ │
@@ -68,7 +68,7 @@ CosAI 面向 Photoshop 2026+ UXP 架构，为漫展 Cosplay 人像后期提供�
 ```
 
 - **host.js**: 运行在 UXP 宿主环境，直接调用 Photoshop 原生 API（batchPlay、DOM 操作），并承担图片导出、图层贴回、文件读写与日志落盘
-- **WebView**: 运行在 Chromium 渲染环境，承载 React 前端 UI 与 AI 任务队列调度
+- **WebView**: 运行在 Chromium 渲染环境，承载手写原生前端 UI 与 AI 任务队列调度
 - **通信**: 通过 `uxpHost.postMessage` + `CustomEvent` 双向桥接；所有 modal 级 PS 操作经共享互斥锁串行化，避免并发崩溃
 
 ---
@@ -240,7 +240,7 @@ Photoshop 菜单栏 → **窗口 → 扩展(旧版) → CosAI**（或 菜单栏 
 
 ```
 ┌──────────────────────────────────────────────────────────────────┐
-│  WebView (React)         Panel (UXP Host)      Photoshop API    │
+│  WebView (app.html)      Panel (UXP Host)      Photoshop API    │
 │                                                                  │
 │  window.__uxpHost        panel-boot.js         host.js          │
 │  .postMessage ───────►   CustomEvent ────────►  batchPlay       │
@@ -266,11 +266,11 @@ Photoshop 菜单栏 → **窗口 → 扩展(旧版) → CosAI**（或 菜单栏 
 |------|------|
 | 插件框架 | Adobe UXP v5 (Manifest v5) |
 | 宿主脚本 | JavaScript (Photoshop UXP API) |
-| 前端 UI | React（`app.html` / `app.js` / `assets/*.js`） |
+| 前端 UI | 手写原生 HTML/CSS/JS（`app.html` + `app.css`，不依赖框架） |
 | 渲染引擎 | Chromium WebView (UXP embedded) |
 | 通信协议 | postMessage + CustomEvent 桥接 |
 | 底层 API | Photoshop batchPlay（action 层） |
-| AI 接口 | OpenAI 兼容格式（`POST {base}/v1/draw/nano-banana` + 轮询 `result`） |
+| AI 接口 | 双平台：GRS 私有异步协议 + OpenAI 兼容网关（`/models` 探活，`generations`/`edits` 出图） |
 | 版本控制 | Git |
 
 ---
@@ -279,30 +279,70 @@ Photoshop 菜单栏 → **窗口 → 扩展(旧版) → CosAI**（或 菜单栏 
 
 ```
 CosAI/
-├── index.html          # 面板入口（host shell）
-├── host.js             # UXP 宿主脚本（核心 PS API、导出/贴回、日志落盘、Key 读取）
+├── index.html          # 面板入口（host shell，加载 host.js + panel-boot.js）
+├── host.js             # UXP 宿主脚本（核心 PS API、导出/贴回、HTTP 代理、日志落盘、Key 读取）
 ├── panel-boot.js       # WebView 创建与消息桥
-├── app.html            # React 应用入口（WebView，含任务队列与分级日志前端）
-├── app.js              # React 应用代码
+├── app.html            # 前端唯一渲染源（手写原生 UI，含任务队列与分级日志）
 ├── app.css             # 样式文件
 ├── manifest.json       # 插件清单
-├── boot.js             # 引导脚本
-├── ext-test.js         # 测试脚本
-├── wv-probe.js         # WebView 探测
-├── assets/             # 构建产物（index-r3jHK-P2.js 等）
-├── icons/              # 插件图标（PNG，host 字段兼容性）
-├── 风月-高低频/         # 高低频分离独立参考模块
-├── 风月-双曲线/         # 双曲线修图独立参考模块
-├── 风月-辉光/           # 辉光效果独立参考模块
-├── 风月-返图区域/       # 返图区域独立参考模块
-└── cosai_logs/         # 【运行时生成】分级日志按天落盘
+├── icons/              # 插件图标（PNG + SVG 源文件）
+├── 风月-高低频/         # 高低频分离独立参考模块（不直接加载）
+├── 风月-双曲线/         # 双曲线修图独立参考模块（不直接加载）
+├── 风月-辉光/           # 辉光效果独立参考模块（不直接加载）
+└── 风月-返图区域/       # 返图区域模块（index.js 由 app.html 直接加载）
 ```
 
-> **注意**: `风月-*` 文件夹是独立的**参考实现**模块，**不直接加载**；实际运行时使用的是 `host.js` 中内联的 `ToolboxAPI`。修改运行行为需改 `host.js`，改 UI/队列/日志需改 `app.html`。
+> **注意**: `风月-高低频` / `风月-双曲线` / `风月-辉光` 是独立的**参考实现**，**不直接加载**；实际运行时使用的是 `host.js` 中内联的 `ToolboxAPI`。仅 `风月-返图区域/index.js` 被 `app.html` 直接引入。修改运行行为需改 `host.js`，改 UI/队列/日志需改 `app.html`。
+
+> **日志目录**: `cosai_logs/` 由 `host.js` 通过 `fs.getDataFolder()` 写入 **插件数据目录**（`PluginsStorage/com.cosai.psplugin/`），不在插件安装目录内，已加入 `.gitignore`。
+
+### 遗留文件（当前版本已无引用）
+
+`app.html` 手写 UI 自 v1.8.0 起成为唯一渲染源，React 版整体退场。以下文件保留在仓库中但**不被任何代码加载**，后续清理时可直接删除：
+
+| 文件 | 原用途 |
+|------|--------|
+| `app.js` | React 应用代码（旧 UI 实现） |
+| `assets/` | React 构建产物（`index-r3jHK-P2.js` / `index-CT5BbW2z.css`） |
+| `boot.js` | React 引导脚本（动态加载 `app.js`，含 polyfill 与错误兜底） |
+| `ext-test.js` | 早期外部脚本执行探针 |
+| `wv-probe.js` | 早期 WebView 环境探针 |
 
 ---
 
 ## 迭代日志
+
+### v1.8.2 (2026-09-23)
+
+> 仓库卫生与版本信息校正（无功能改动）
+
+- 版本号同步至 `1.8.2`：`manifest.json` 与 `host.js` 的 `COSAI_HOST_VERSION` 保持一致
+- 清理手工备份文件 `app.html.bak.multipf` / `host.js.bak.multipf`（合计约 336KB）
+- `.gitignore` 新增 `*.bak` / `*.bak.*` 规则（覆盖历次手工备份），并补充 `cosai_logs/`
+- README 校正：项目结构文件树、技术栈与架构图中已过时的 **React** 表述；标注 `app.js` / `assets/` / `boot.js` / `ext-test.js` / `wv-probe.js` 为无引用遗留文件
+
+### v1.8.1 (2026-09-18)
+
+> 多平台视觉模型适配（GRS + OpenAI 兼容网关）与贴入画布修复
+
+- **平台对接**：模型配置支持 GRS 官方与 PsyDo/OpenAI 兼容平台切换，配置面板双卡片；GRS 保留私有异步协议，OpenAI 平台走 `/models` 探活 + `generations`/`edits` 出图
+- OpenAI 地址自动规整 `/v1`，杜绝双 `v1` 与路径拼接错误；模型按 Key 分组实际 `/models` 自适应选择，`2.5` 不存在时自动降级 `gpt-image-2`
+- 接入官方 5 端点池（`api` / `cn2` / `cf` / `ppx-ai` / `us`），5xx / 超时 / TLS 自动退避并转移端点
+- `401/403/404/429/5xx` 按官方文档分类处理，错误携带真实请求 URL 与服务端返回
+- **连接与权限**：host 新增 panel 层 HTTP 代理（含 multipart），绕过 webview CORS 限制；`manifest` 的 `network` / `webview.domains` 修正为字符串 `"all"`，修复 Permission denied；`callHost` 支持自定义超时，出图等待放宽至 5 分钟
+- **贴入画布**：抽出 `_placeLayerFile`，新增 `saveAndPlaceImage` 原子接口（写盘后直接置入，大图 base64 只过一次消息桥）；贴入成败显式反馈，结果区按钮同步加固
+- **配置持久化**：`cosai_key.json` 升级 v2 多平台结构，两平台互不覆盖并自动迁移旧档；切换平台即激活落盘，测试连接成功自动保存模型与平台
+
+### v1.8.0 (2026-09-14)
+
+> 风月 AI 首页 + 修图工具大师级重设计
+
+- 新增「风月 AI」首页：极简美学极光光球动画、品牌标识、开始创作 / 修图工具双 CTA、功能入口卡片
+- 修图工具面板重设计：玻璃拟态卡片、工具分组、SVG 图标、双语副标题、悬停反馈
+- 修复「辉光效果 方法不可用」错误：向 `window.__cosai_ps_api` 暴露 `frequencySeparation` / `dodgeBurnCurves` / `glowEffect` / `stampVisible` / `mergeVisibleLayers`
+- 修复文件中文字溢出：栈式布局 + 紧凑卡片 + `ellipsis` 省略号
+- 自研 `cosaiConfirm` 确认弹窗替换原生 `confirm`（UXP webview 不支持）
+- **架构收敛**：`app.html` 手写 UI 成为唯一渲染源，不再加载 React 版 `app.js`
 
 ### v1.7.0 (2026-09-11)
 
