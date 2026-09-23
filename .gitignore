@@ -4,9 +4,14 @@ node_modules/
 .cache/
 *.tmp
 
-# 手工改动前的备份文件（app.html.bak.multipf / app.js.bak.old346k 等）
+# 手工改动前的备份文件（如 app.html.bak.multipf / app.js.bak.old346k）
 *.bak
 *.bak.*
 
 # 运行时生成的插件数据与日志目录
 cosai_logs/
+
+# 本地大模型密钥与平台配置
+# 实际落盘在 UXP 插件数据目录（PluginsStorage/com.cosai.psplugin/PluginData/），
+# 本就不在仓库内；此处仅作防御性兜底，避免整目录拷贝时误入库。
+cosai_key.json

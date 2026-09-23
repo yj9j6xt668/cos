@@ -318,7 +318,9 @@ CosAI/
 
 - 版本号同步至 `1.8.2`：`manifest.json` 与 `host.js` 的 `COSAI_HOST_VERSION` 保持一致
 - 清理手工备份文件 `app.html.bak.multipf` / `host.js.bak.multipf`（合计约 336KB）
+- 移除历史遗留的**已跟踪**备份 `app.js.bak.old346k`（354KB）——`.gitignore` 对已入库文件无效，需 `git rm` 才真正退出仓库
 - `.gitignore` 新增 `*.bak` / `*.bak.*` 规则（覆盖历次手工备份），并补充 `cosai_logs/`
+- `.gitignore` 补充 `cosai_key.json` 作防御性兜底：密钥实际落盘在 UXP 插件数据目录，本不在仓库内，此规则仅防整目录拷贝时误入库
 - README 校正：项目结构文件树、技术栈与架构图中已过时的 **React** 表述；标注 `app.js` / `assets/` / `boot.js` / `ext-test.js` / `wv-probe.js` 为无引用遗留文件
 
 ### v1.8.1 (2026-09-18)
